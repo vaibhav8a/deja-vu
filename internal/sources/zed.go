@@ -249,7 +249,7 @@ func zedSession(db string, r zedRow) (model.Session, bool) {
 	s := model.Session{
 		ID:      r.ID,
 		Harness: "zed",
-		Project: projectName(zedFolder(r.Folders)),
+		Project: projectName(zedProject(r.Folders, th)),
 		Path:    db,
 		Title:   title,
 		Started: started,
@@ -320,6 +320,17 @@ type zedThread struct {
 	Summary   string            `json:"summary"`
 	UpdatedAt string            `json:"updated_at"`
 	Messages  []json.RawMessage `json:"messages"`
+	// Snapshot is where the thread was opened. The folder_paths column is the
+	// first place to look and is not always there: it arrives by ALTER TABLE,
+	// so a store an older Zed wrote and a newer one never opened has only the
+	// original five columns. Every thread document carries the path anyway.
+	Snapshot zedSnapshot `json:"initial_project_snapshot"`
+}
+
+type zedSnapshot struct {
+	Worktrees []struct {
+		Path string `json:"worktree_path"`
+	} `json:"worktree_snapshots"`
 }
 
 // zedMessage reads one message in either of the two shapes a live store mixes.
@@ -426,6 +437,27 @@ func zedLegacyMessage(m map[string]json.RawMessage) (role, text string) {
 		b.WriteString(seg.Text)
 	}
 	return role, b.String()
+}
+
+// zedProject is where a thread belongs: the folder_paths column when the store
+// has it, and the path the thread document recorded when it does not.
+//
+// This matters more than a missing label. A session with no project is
+// invisible to auto-recall, which ranks within the project the user is working
+// in — so on a store without that column, every Zed thread was indexed and
+// then unreachable by the thing that recalls without being asked. Measured on a
+// real store: thirty threads, thirty of them in project "-", and every one of
+// them carrying its own worktree path in the document.
+func zedProject(folders string, th zedThread) string {
+	if p := zedFolder(folders); p != "" {
+		return p
+	}
+	for _, w := range th.Snapshot.Worktrees {
+		if p := strings.TrimSpace(w.Path); p != "" {
+			return p
+		}
+	}
+	return ""
 }
 
 // zedFolder picks the project directory out of a serialized PathList. Zed

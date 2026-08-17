@@ -240,13 +240,44 @@ insert into threads (id,summary,updated_at,data_type,data) values
 	if got.ID != "pre-alter" || len(got.Messages) != 2 {
 		t.Fatalf("session = %#v", got)
 	}
-	// With no folder column there is no project path, and with no created_at the
+	// No folder column and no snapshot in the document either, which is the only
+	// case left with nothing to name the project by. With no created_at the
 	// window collapses onto updated_at rather than starting at the epoch.
 	if got.Project != "-" {
 		t.Fatalf("project = %q, want the unknown-project marker", got.Project)
 	}
 	if !got.Started.Equal(got.Updated) || got.Started.IsZero() {
 		t.Fatalf("window = %v..%v, want a single instant", got.Started, got.Updated)
+	}
+}
+
+// A real thread carries the path it was opened in, whatever the schema. The
+// folder_paths column arrives by ALTER TABLE, so a store an older Zed wrote and
+// a newer one never opened has only the original five columns — and on such a
+// store every thread was landing in the unknown-project marker.
+//
+// That is worse than a missing label: a session with no project is invisible to
+// auto-recall, which ranks within the project the user is working in. Measured
+// on a real 30-thread store, all thirty were "-", and all thirty carried their
+// own worktree path in the document.
+func TestParseZedDBTakesTheProjectFromTheDocumentWhenTheColumnIsGone(t *testing.T) {
+	zedHome(t)
+	const withSnapshot = `{"version":"0.3.0","title":"snapshot thread","updated_at":"2026-07-19T09:00:02Z",` +
+		`"initial_project_snapshot":{"worktree_snapshots":[{"worktree_path":"/Users/x/code/marketplace-price-tracker"}]},` +
+		`"messages":[{"User":{"id":"u1","content":[{"Text":"first question"}]}}]}`
+	body := zedZstdHex(t, withSnapshot)
+	sql := zedSchemaOriginal + `
+insert into threads (id,summary,updated_at,data_type,data) values
+ ('snap','snap','2026-07-19T09:00:02+00:00','zstd',x'` + body + `');`
+	sessions, err := ParseZedDB(zedTestDB(t, sql))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v, want one", sessions)
+	}
+	if got := sessions[0].Project; got != "marketplace-price-tracker" {
+		t.Errorf("project = %q, want it read off the document's worktree path", got)
 	}
 }
 
