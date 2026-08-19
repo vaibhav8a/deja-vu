@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/vshulcz/deja-vu/internal/index"
 	"github.com/vshulcz/deja-vu/internal/prompt"
 	"github.com/vshulcz/deja-vu/internal/search"
+	"github.com/vshulcz/deja-vu/internal/sources"
 	"github.com/vshulcz/deja-vu/internal/usage"
 
 	"github.com/vshulcz/deja-vu/internal/atomicfile"
@@ -144,6 +146,21 @@ func runHookPromptMode(dir string, stdin io.Reader, stdout io.Writer, plain bool
 	cwd := os.Getenv("CLAUDE_PROJECT_DIR")
 	if cwd == "" {
 		cwd, _ = os.Getwd()
+	}
+	// A home directory is not a project. Everything ever launched from there
+	// shares its name, so ranking "this project" over that scope ranks
+	// unrelated work against each other and the repository actually being
+	// worked on is not in it at all. Measured on a real machine 2026-08-19:
+	// an agent started from /Users/shulcz got the scope [shulcz, Users/shulcz]
+	// and the hook injected a review of a different project into a
+	// conversation about this one, while the answer sat in a project the
+	// scope did not cover.
+	//
+	// Silence is the right answer there, and the cheap one: a wrong injection
+	// costs tokens twice, once to carry it and again when the agent learns to
+	// stop reading them.
+	if scopeIsNotAProject(cwd) {
+		return emitNudgeOnly(stdout, plain, nudge)
 	}
 	// Rank THIS project's sessions by how well they match the prompt terms
 	// (IDF-weighted), rather than reconstructing an AND query — natural
@@ -720,4 +737,26 @@ func weakRecallPointer(ss []model.Session, terms []string) string {
 	}
 	return fmt.Sprintf("deja: this project has history on %q from %s%s — call recall with a specific token if it matters here.\n",
 		search.SafeLine(topic), when, more)
+}
+
+// scopeIsNotAProject reports whether a working directory is one of the places
+// that collects unrelated work rather than holding one project: the home
+// directory itself, or a filesystem root. Both are ordinary places to start an
+// agent from — a scheduled job, a shell that never cd'd anywhere — and neither
+// says anything about what is being worked on.
+//
+// Deliberately narrow. A directory that is not a git repository is still a
+// perfectly good project; only the catch-alls are refused.
+func scopeIsNotAProject(cwd string) bool {
+	// An empty path cleans to "." and "." is its own parent, so the root check
+	// below answers that case too — no separate branch, which would be one
+	// that no test could ever distinguish.
+	clean := filepath.Clean(cwd)
+	if clean == filepath.Dir(clean) { // "", "/" and a volume root are their own parent
+		return true
+	}
+	if home := sources.Home(); home != "" && clean == filepath.Clean(home) {
+		return true
+	}
+	return false
 }
