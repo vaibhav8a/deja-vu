@@ -148,7 +148,7 @@ func runHookPromptMode(dir string, stdin io.Reader, stdout io.Writer, plain bool
 	// Rank THIS project's sessions by how well they match the prompt terms
 	// (IDF-weighted), rather than reconstructing an AND query — natural
 	// prompts are full of filler that poisons an AND.
-	ranked, matched, strong, err := index.ProjectRelevant(dir, digest.ProjectNameCandidates(cwd), terms, prompt.Candidates)
+	ranked, matched, strong, covered, err := index.ProjectRelevant(dir, digest.ProjectNameCandidates(cwd), terms, prompt.Candidates)
 	if err != nil || len(ranked) == 0 {
 		return emitNudgeOnly(stdout, plain, nudge)
 	}
@@ -171,7 +171,7 @@ func runHookPromptMode(dir string, stdin io.Reader, stdout io.Writer, plain bool
 		// hook pays its cost on every message the user sends. Measured on
 		// cross-paired prompts whose answer is absent, the old bar injected on
 		// 94% of them; half of those rested on one ordinary word.
-		if !recallWorthShowing(terms, matched[i], strong[i]) {
+		if !recallWorthShowing(terms, matched[i], strong[i], covered) {
 			continue
 		}
 		if matched[i] >= 2 {
@@ -737,7 +737,7 @@ func weakRecallPointer(ss []model.Session, terms []string) string {
 // Measured by hand on ten real prompts against a frozen index: five were
 // answered with plainly unrelated work, none with silence, and every one of
 // those five rested on words that live in the project but never met.
-func recallWorthShowing(terms []string, matched, strong int) bool {
+func recallWorthShowing(terms []string, matched, strong, covered int) bool {
 	if matched < 1 {
 		return false
 	}
@@ -752,5 +752,13 @@ func recallWorthShowing(terms []string, matched, strong int) bool {
 	// store is open. Measured: the proxy calls "output", "command" and "adjust"
 	// identifiers and fires on "paste the output of that command", and the
 	// `matched >= 2` fallback fires on "adjust the patch and try again".
-	return strong >= 1
+	if strong < 1 {
+		return false
+	}
+	// The session has to account for every identifying word this project has an
+	// answer for. Holding only some of them is what a question that joins work
+	// nobody joined looks like: "did the kestrel timeout ever delay an escrow
+	// release" wins on kestrel and timeout while escrow and release were decided
+	// in another session entirely.
+	return covered == 0 || strong >= covered
 }

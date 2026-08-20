@@ -306,13 +306,13 @@ func measurePrompt(seed int64) (promptReport, error) {
 // opening line came from the top of a long transcript does not, and that line
 // is the whole frame an agent reads before deciding to ignore the rest.
 func shownLineCarriesATerm(dir, project string, terms []string) bool {
-	ranked, matched, strong, err := index.ProjectRelevant(dir, []string{project}, terms, 8)
+	ranked, matched, strong, covered, err := index.ProjectRelevant(dir, []string{project}, terms, 8)
 	if err != nil {
 		return false
 	}
 	var keep []model.Session
 	for i, s := range ranked {
-		if !recallWorthShowing(terms, matched[i], strong[i]) {
+		if !recallWorthShowing(terms, matched[i], strong[i], covered) {
 			continue
 		}
 		keep = append(keep, s)
@@ -349,7 +349,7 @@ func promptBenchProbe(dir, project, chainID string, terms []string) (fired, corr
 	if !promptTermsWorthAsking(terms) {
 		return false, false
 	}
-	ranked, matched, strong, err := index.ProjectRelevant(dir, []string{project}, terms, 8)
+	ranked, matched, strong, covered, err := index.ProjectRelevant(dir, []string{project}, terms, 8)
 	if err != nil {
 		return false, false
 	}
@@ -357,7 +357,7 @@ func promptBenchProbe(dir, project, chainID string, terms []string) (fired, corr
 		// The same bar the hook applies, from the same function — kept in one
 		// place because the two drifted: this one asked whether the query held
 		// an identifier, the hook asked whether the session did.
-		if !recallWorthShowing(terms, matched[i], strong[i]) {
+		if !recallWorthShowing(terms, matched[i], strong[i], covered) {
 			continue
 		}
 		if len(s.Messages) > dejaVuMaxMessages {

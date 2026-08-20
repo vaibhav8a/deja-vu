@@ -100,3 +100,21 @@ func TestPromptFillerIsDropped(t *testing.T) {
 		t.Fatal("filtering took the real terms with it")
 	}
 }
+
+// A question can join two things the project decided separately. The session
+// that wins holds one of them, and answering with it is worse than silence.
+func TestASessionMustAccountForEveryIdentifyingWord(t *testing.T) {
+	terms := []string{"kestrel", "timeout", "escrow", "release"}
+	// The project has an answer for all four, this session covers two.
+	if recallWorthShowing(terms, 2, 2, 4) {
+		t.Fatal("half of the question is not an answer to it")
+	}
+	// The session that covers all four is worth showing.
+	if !recallWorthShowing(terms, 4, 4, 4) {
+		t.Fatal("the session holding every identifying word was withheld")
+	}
+	// Nothing identifying in the project: the older bar decides alone.
+	if !recallWorthShowing(terms, 1, 1, 0) {
+		t.Fatal("a rare match with nothing to compare against must still show")
+	}
+}

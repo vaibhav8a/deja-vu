@@ -525,7 +525,7 @@ const dejaVuStrongIDFFloor = 3.0
 // the prompt terms. matched reports, per returned session, how many distinct
 // INFORMATIVE terms hit (idf >= dejaVuIDFFloor) — callers gate on it so
 // generic words cannot manufacture a confident "you have been here".
-func ProjectRelevant(dir string, projects, terms []string, n int) ([]model.Session, []int, []int, error) {
+func ProjectRelevant(dir string, projects, terms []string, n int) ([]model.Session, []int, []int, int, error) {
 	if dir == "" {
 		dir = DefaultDir()
 	}
@@ -534,35 +534,35 @@ func ProjectRelevant(dir string, projects, terms []string, n int) ([]model.Sessi
 	// rebuild — which every user hits on an index-format upgrade.
 	unlock, ok, err := tryLockDir(dir)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, 0, err
 	}
 	if ok {
 		defer unlock()
 	}
 	m, err := readManifestCached(dir)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, 0, err
 	}
-	metas, matched, strong, rerr := relevantMetasMatched(dir, m, projects, terms, n)
+	metas, matched, strong, covered, rerr := relevantMetasMatched(dir, m, projects, terms, n)
 	if rerr != nil {
 		// A corrupt or unreadable bucket. The hook never rebuilds, so surface
 		// it rather than inject a silently short-ranked déjà vu; the caller
 		// stays quiet on an error.
-		return nil, nil, nil, rerr
+		return nil, nil, nil, 0, rerr
 	}
 	if len(metas) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, 0, nil
 	}
 	out, err := sessionsServable(dir, metas, query.Options{})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, 0, err
 	}
-	return out, matched, strong, nil
+	return out, matched, strong, covered, nil
 }
 
-func relevantMetasMatched(dir string, m Manifest, projects, terms []string, n int) ([]SessionMeta, []int, []int, error) {
+func relevantMetasMatched(dir string, m Manifest, projects, terms []string, n int) ([]SessionMeta, []int, []int, int, error) {
 	rank, err := relevantMetasCounts(dir, m, projects, terms, n, nil)
-	return rank.metas, rank.informative, rank.strong, err
+	return rank.metas, rank.informative, rank.strong, rank.strongInProject, err
 }
 
 // relevanceRanking is what one ranking pass produced. It was seven return
@@ -578,6 +578,10 @@ type relevanceRanking struct {
 	// termsKnown is how many of the query's terms the corpus contains at all,
 	// and total how many sessions the ranking scored before n truncated it.
 	termsKnown, total int
+	// strongInProject is how many of the query's identifying words this project
+	// holds an answer for anywhere. A session that accounts for fewer of them
+	// than the project has is answering part of the question.
+	strongInProject int
 	// idf is what each query term was worth, so a caller choosing which message
 	// to show can weigh it the same way the ranking weighed the session rather
 	// than approximating it.
@@ -749,6 +753,7 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 	// total it collects across thousands of them.
 	msgIDF := map[uint32]map[int64]float64{}
 	termsKnown := 0
+	strongInProject := 0
 	for _, term := range terms {
 		keys := queryKeys(term)
 		if len(keys) == 0 {
@@ -912,6 +917,13 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 		// Rare enough to identify something on its own: either well past the
 		// ordinary bar, or living in a single session of the whole corpus.
 		strong := idf >= dejaVuStrongIDFFloor || minDF <= 1
+		if strong && len(hit) > 0 {
+			// This project has an answer for this word somewhere. Counting them
+			// lets a caller ask whether the session it is about to show accounts
+			// for all of them, or only for part of a question that joins work
+			// nobody joined.
+			strongInProject++
+		}
 		for ord := range hit {
 			mm := perMessage[ord]
 			if mm == nil {
@@ -1012,13 +1024,14 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 		strong = append(strong, r.strong)
 	}
 	return relevanceRanking{
-		metas:       metas,
-		informative: matched,
-		any:         anyMatched,
-		strong:      strong,
-		termsKnown:  termsKnown,
-		total:       matchedTotal,
-		idf:         idfOf,
+		metas:           metas,
+		informative:     matched,
+		any:             anyMatched,
+		strong:          strong,
+		termsKnown:      termsKnown,
+		strongInProject: strongInProject,
+		total:           matchedTotal,
+		idf:             idfOf,
 	}, readErr
 }
 
