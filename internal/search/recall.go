@@ -579,12 +579,12 @@ func ConcludedAbout(s model.Session, terms []string) bool {
 	// session" in their place.
 	problem, conclusions := matchedLines(s, terms)
 	if problem != "" {
-		return digest.CarriesDecision(problem)
+		return digest.CarriesDecisionExcept(problem, terms)
 	}
 	if len(conclusions) == 0 {
 		return false
 	}
-	return digest.CarriesDecision(conclusions[0])
+	return digest.CarriesDecisionExcept(conclusions[0], terms)
 }
 
 // densestLine returns the line of a message carrying the most query terms, and
