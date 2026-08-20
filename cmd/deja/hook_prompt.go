@@ -746,8 +746,11 @@ func recallWorthShowing(terms []string, matched, strong int) bool {
 	// applying all along while the hook applied only the first — measured on
 	// the corpus, the pair answers 11 of 12 real questions with no false fire,
 	// where the session-only rule answers 7 and fires on 2 controls.
-	if hasIdentifierTerm(terms) {
-		return true
-	}
-	return matched >= 2
+	// Whether the question named something specific is a guess when all we have
+	// is its words, and the index has already answered it — so use that instead
+	// of the length proxy `promptTermsWorthAsking` has to rely on before the
+	// store is open. Measured: the proxy calls "output", "command" and "adjust"
+	// identifiers and fires on "paste the output of that command", and the
+	// `matched >= 2` fallback fires on "adjust the patch and try again".
+	return strong >= 1
 }

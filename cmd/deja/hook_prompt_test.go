@@ -263,6 +263,7 @@ func TestHookPromptSkipsMarathonSessions(t *testing.T) {
 	writeClaudeFixture(t, filepath.Join(claudeRoot, "-tmp-hay", "focus.jsonl"), "focus", []string{
 		`{"type":"user","sessionId":"focus","timestamp":"` + old + `","message":{"role":"user","content":"the quetzalcoatl stampede fix: jittered ttl"}}`,
 	})
+	writeOrdinaryBackground(t, 100)
 	if err := index.Ensure(index.DefaultDir(), "", true, nil); err != nil {
 		t.Fatal(err)
 	}

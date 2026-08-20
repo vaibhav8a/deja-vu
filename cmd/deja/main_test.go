@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -430,6 +431,52 @@ func writeClaudeFixture(t *testing.T, path, sessionID string, lines []string) {
 	_ = sessionID
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ordinaryTalk is the vocabulary a working session is made of. Nothing in it
+// identifies anything, which is the point.
+var ordinaryTalk = []string{
+	"pushed the branch and ran the suite again",
+	"the suite passed after the last fix",
+	"rebased onto main and forced the check to rerun",
+	"the build failed on the first attempt",
+	"reverted that change and measured again",
+	"opened a draft and left it for review",
+	"the test was flaky so I ran it twice",
+	"merged it once the checks went green",
+	"looked at the diff and reduced the scope",
+	"the numbers came out the same as before",
+}
+
+// writeOrdinaryBackground fills the store with sessions of ordinary work, in
+// their own projects, so that "rare" means something.
+//
+// A fixture of two or three sessions cannot say which of its words identify
+// anything: in TestHookPromptSkipsMarathonSessions "quetzalcoatl" sits in both
+// sessions of a three-document index, which puts its idf at 0 — the most
+// specific word imaginable, scored as filler. Measured with a hundred ordinary
+// sessions behind it the same word scores 3.53 and the working phrases score
+// 2.24, which is the order a real store has.
+func writeOrdinaryBackground(t *testing.T, n int) {
+	t.Helper()
+	root := os.Getenv("DEJA_CLAUDE_ROOT")
+	if root == "" {
+		t.Fatal("DEJA_CLAUDE_ROOT unset; call hermeticEnv or withStatsStores first")
+	}
+	old := time.Now().Add(-96 * time.Hour).UTC().Format(time.RFC3339)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("bg%03d", i)
+		var lines []string
+		for k := 0; k < 4; k++ {
+			// Both strides are coprime with the pool length so every phrase is
+			// used about equally; a stride sharing a factor reaches only a few
+			// and leaves the rest rare, which is the failure this guards.
+			text := ordinaryTalk[(i*3+k*7)%len(ordinaryTalk)]
+			lines = append(lines, `{"type":"user","sessionId":"`+id+`","timestamp":"`+old+
+				`","message":{"role":"user","content":"`+text+`"}}`)
+		}
+		writeClaudeFixture(t, filepath.Join(root, "-tmp-"+id, id+".jsonl"), id, lines)
 	}
 }
 
