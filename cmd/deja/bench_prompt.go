@@ -437,6 +437,8 @@ func blockCarries(dir, project string, terms []string, fact, topic string) bool 
 	if len(keep) == 0 {
 		return false
 	}
+	// The same ordering the hook applies, from the same function.
+	keep = search.LeadWithConclusion(keep, terms)
 	block := search.AutoRecallDigestFor(keep[:1], 2000, terms)
 	// Skip the subject itself. It appears in every session that mentions the
 	// thing, so checking for it asks whether the block is about the subject —

@@ -229,6 +229,9 @@ func runHookPromptMode(dir string, stdin io.Reader, stdout io.Writer, plain bool
 	if len(ss) == 0 {
 		return nil
 	}
+	// Of the sessions that qualified, lead with one that settled something
+	// about the question rather than one that only kept mentioning it.
+	ss = search.LeadWithConclusion(ss, terms)
 	// A rejected session is not an equal answer, and the mark has to travel
 	// with it into the block the agent reads (#761).
 	ss, rejectedWarning := orderForInjection(ss)
