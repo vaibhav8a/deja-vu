@@ -334,3 +334,43 @@ func TestProjectRelevantDottedTermNeedsAllSubTokens(t *testing.T) {
 		t.Fatalf("full-address session missing: got=%v matched=%v", len(got), matched)
 	}
 }
+
+// An agent started from a home directory gets a scope holding everything ever
+// launched from there and not the repository being worked on. The word that
+// identifies the question then lives in another project, and a neighbour from
+// the catch-all is worse than silence.
+func TestTheWordThatIdentifiesMustBeInScope(t *testing.T) {
+	tmp := t.TempDir()
+	claudeRoot := filepath.Join(tmp, "claude")
+	t.Setenv("DEJA_CLAUDE_ROOT", claudeRoot)
+	dir := filepath.Join(tmp, "index.db")
+	t.Setenv("DEJA_INDEX_DIR", dir)
+	mk := func(project, id, text string) {
+		p := filepath.Join(claudeRoot, project)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"user","sessionId":"` + id + `","timestamp":"2026-01-02T03:04:05Z","message":{"role":"user","content":"` + text + `"}}` + "\n"
+		if err := os.WriteFile(filepath.Join(p, id+".jsonl"), []byte(line), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("-tmp-bucket", "neighbour", "the statement cache is disabled on the read mirror after those failures")
+	mk("-tmp-elsewhere", "answer", "prepared statements go behind pgbouncer in session mode")
+	if err := Ensure(dir, "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	terms := []string{"pgbouncer", "statement", "failures"}
+	_, _, strong, covered, err := ProjectRelevant(dir, []string{"bucket"}, terms, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strong) == 0 {
+		t.Fatal("the neighbour did not rank at all; the fixture no longer reproduces the case")
+	}
+	// The count the caller compares against has to exceed what any session
+	// here can hold, because "pgbouncer" is not in this scope at all.
+	if covered <= strong[0] {
+		t.Fatalf("covered = %d, best session holds %d: a neighbour would be shown for a word this scope does not have", covered, strong[0])
+	}
+}

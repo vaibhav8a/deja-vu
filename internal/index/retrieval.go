@@ -562,7 +562,14 @@ func ProjectRelevant(dir string, projects, terms []string, n int) ([]model.Sessi
 
 func relevantMetasMatched(dir string, m Manifest, projects, terms []string, n int) ([]SessionMeta, []int, []int, int, error) {
 	rank, err := relevantMetasCounts(dir, m, projects, terms, n, nil)
-	return rank.metas, rank.informative, rank.strong, rank.strongInProject, err
+	covered := rank.strongInProject
+	if rank.hasTopStrong && !rank.topStrongInProject {
+		// The word that identifies the question best is not in this scope at
+		// all. Count it anyway: no session here can reach the total, so the
+		// caller stays quiet instead of returning a neighbour.
+		covered++
+	}
+	return rank.metas, rank.informative, rank.strong, covered, err
 }
 
 // relevanceRanking is what one ranking pass produced. It was seven return
@@ -582,6 +589,9 @@ type relevanceRanking struct {
 	// holds an answer for anywhere. A session that accounts for fewer of them
 	// than the project has is answering part of the question.
 	strongInProject int
+	// hasTopStrong says the query had an identifying word at all, and
+	// topStrongInProject whether this project holds the best one of them.
+	hasTopStrong, topStrongInProject bool
 	// idf is what each query term was worth, so a caller choosing which message
 	// to show can weigh it the same way the ranking weighed the session rather
 	// than approximating it.
@@ -754,6 +764,22 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 	msgIDF := map[uint32]map[int64]float64{}
 	termsKnown := 0
 	strongInProject := 0
+	topStrongIDF := -1.0
+	topStrongInProject := false
+	// A word the store knows and this project does not never reaches the
+	// scoring below — it is dropped as soon as the in-project hit set comes up
+	// empty. It still has to count: if the word that identifies the question
+	// best lives somewhere else entirely, nothing in this scope can answer it.
+	noteAbsentStrong := func(df int) {
+		if df == 0 {
+			return
+		}
+		idf := math.Log(totalDocs / float64(df+1))
+		if (idf >= dejaVuStrongIDFFloor || df <= 1) && idf > topStrongIDF {
+			topStrongIDF = idf
+			topStrongInProject = false
+		}
+	}
 	for _, term := range terms {
 		keys := queryKeys(term)
 		if len(keys) == 0 {
@@ -839,6 +865,7 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 				}
 			}
 			if len(hit) == 0 {
+				noteAbsentStrong(len(df))
 				continue
 			}
 			minDF = len(df)
@@ -894,6 +921,7 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 					offs = keyOffs
 				}
 				if len(hit) == 0 {
+					noteAbsentStrong(len(df))
 					missed = true
 					break
 				}
@@ -923,6 +951,15 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 			// for all of them, or only for part of a question that joins work
 			// nobody joined.
 			strongInProject++
+		}
+		if strong && minDF > 0 && idf > topStrongIDF {
+			// The word that identifies the question best, whether or not this
+			// project holds it. When the project does not, nothing here can
+			// account for the question — an agent started from a home directory
+			// gets a scope full of unrelated work, and the neighbour it returns
+			// costs tokens and teaches the agent to ignore the next one.
+			topStrongIDF = idf
+			topStrongInProject = len(hit) > 0
 		}
 		for ord := range hit {
 			mm := perMessage[ord]
@@ -1024,14 +1061,16 @@ func relevantMetasCounts(dir string, m Manifest, projects, terms []string, n int
 		strong = append(strong, r.strong)
 	}
 	return relevanceRanking{
-		metas:           metas,
-		informative:     matched,
-		any:             anyMatched,
-		strong:          strong,
-		termsKnown:      termsKnown,
-		strongInProject: strongInProject,
-		total:           matchedTotal,
-		idf:             idfOf,
+		metas:              metas,
+		informative:        matched,
+		any:                anyMatched,
+		strong:             strong,
+		termsKnown:         termsKnown,
+		strongInProject:    strongInProject,
+		topStrongInProject: topStrongInProject,
+		hasTopStrong:       topStrongIDF >= 0,
+		total:              matchedTotal,
+		idf:                idfOf,
 	}, readErr
 }
 
