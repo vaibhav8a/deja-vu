@@ -257,12 +257,22 @@ func TestHookPromptSkipsMarathonSessions(t *testing.T) {
 	old := time.Now().Add(-72 * time.Hour).UTC().Format(time.RFC3339)
 	var lines []string
 	for i := 0; i < dejaVuMaxMessages+10; i++ {
-		lines = append(lines, `{"type":"user","sessionId":"hay","timestamp":"`+old+`","message":{"role":"user","content":"quetzalcoatl stampede msg `+fmt.Sprint(i)+`"}}`)
+		// A long session says its subject some of the time and ordinary work
+		// the rest of it. Repeating the subject in every one of 310 messages
+		// made it the commonest word in the fixture's whole corpus, which is a
+		// shape a real store does not have — measured across 129 live prompts,
+		// nothing was lost to counting rarity in messages.
+		text := "pushed the branch and ran the suite again msg " + fmt.Sprint(i)
+		if i%40 == 0 {
+			text = "quetzalcoatl stampede msg " + fmt.Sprint(i)
+		}
+		lines = append(lines, `{"type":"user","sessionId":"hay","timestamp":"`+old+`","message":{"role":"user","content":"`+text+`"}}`)
 	}
 	writeClaudeFixture(t, filepath.Join(claudeRoot, "-tmp-hay", "hay.jsonl"), "hay", lines)
 	writeClaudeFixture(t, filepath.Join(claudeRoot, "-tmp-hay", "focus.jsonl"), "focus", []string{
 		`{"type":"user","sessionId":"focus","timestamp":"` + old + `","message":{"role":"user","content":"the quetzalcoatl stampede fix: jittered ttl"}}`,
 	})
+	writeOrdinaryBackground(t, 100)
 	if err := index.Ensure(index.DefaultDir(), "", true, nil); err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,7 @@ func TestTheHookLooksPastTheCandidatesItWillNotUse(t *testing.T) {
 		}
 	}
 
+	writeOrdinaryBackground(t, 100)
 	if err := index.Ensure(index.DefaultDir(), "", true, nil); err != nil {
 		t.Fatal(err)
 	}

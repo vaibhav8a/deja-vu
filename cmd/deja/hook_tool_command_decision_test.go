@@ -25,6 +25,7 @@ func TestToolHookCommandLineCarriesWhatHappenedLastTime(t *testing.T) {
 		`{"type":"assistant","sessionId":"run2","cwd":"/work/alpha","timestamp":"2026-01-03T03:04:06Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"pnpm run bundle"}}]}}`,
 		`{"type":"assistant","sessionId":"run2","cwd":"/work/alpha","timestamp":"2026-01-03T03:04:07Z","message":{"role":"assistant","content":[{"type":"text","text":"Decision: pnpm run bundle needs the ARENAGUARD lockfile refreshed first."}]}}`,
 	})
+	writeOrdinaryBackground(t, 100)
 	if _, err := captureRun(t, "index"); err != nil {
 		t.Fatal(err)
 	}

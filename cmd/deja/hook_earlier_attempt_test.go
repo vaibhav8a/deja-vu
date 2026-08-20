@@ -26,6 +26,7 @@ func TestHookPromptNamesTheEarlierAttempt(t *testing.T) {
 		`{"type":"user","sessionId":"newpass","timestamp":"2026-07-20T12:00:00Z","message":{"role":"user","content":"how many retries for the payment webhook"}}`,
 		`{"type":"assistant","sessionId":"newpass","timestamp":"2026-07-20T12:01:00Z","message":{"role":"assistant","content":[{"type":"text","text":"we cut the payment webhook retries to 3"}]}}`,
 	})
+	writeOrdinaryBackground(t, 100)
 	if err := index.Ensure(index.DefaultDir(), "", true, nil); err != nil {
 		t.Fatal(err)
 	}
