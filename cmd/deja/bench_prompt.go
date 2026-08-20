@@ -245,7 +245,7 @@ func measurePrompt(seed int64) (promptReport, error) {
 		case "russian":
 			arm = &report.Russian
 			report.Decision.Cases++
-			if blockCarries(indexDir, scope, terms, chain.Fact) {
+			if blockCarries(indexDir, scope, terms, chain.Fact, chain.Topic) {
 				report.Decision.Fired++
 				report.Decision.Correct++
 			}
@@ -404,7 +404,7 @@ func firstShownLineCarries(dir, project string, terms []string, topic string) bo
 
 // blockCarries builds the block the hook would inject and reports whether it
 // holds a distinctive word of what the session concluded.
-func blockCarries(dir, project string, terms []string, fact string) bool {
+func blockCarries(dir, project string, terms []string, fact, topic string) bool {
 	ranked, matched, strong, idfOf, err := index.ProjectRelevant(dir, []string{project}, terms, 8)
 	if err != nil || len(ranked) == 0 {
 		return false
@@ -422,8 +422,16 @@ func blockCarries(dir, project string, terms []string, fact string) bool {
 		return false
 	}
 	block := search.AutoRecallDigestFor(keep, 2000, terms)
+	// Skip the subject itself. It appears in every session that mentions the
+	// thing, so checking for it asks whether the block is about the subject —
+	// which it is either way — rather than whether it carries the conclusion.
+	// An arm that did not skip it read 2/2 even after the conclusion had been
+	// emptied of its content.
 	for _, w := range strings.Fields(fact) {
-		if len([]rune(w)) >= 7 && search.TextCarriesTerm(block, w) {
+		if len([]rune(w)) < 7 || search.TextCarriesTerm(topic, w) {
+			continue
+		}
+		if search.TextCarriesTerm(block, w) {
 			return true
 		}
 	}
