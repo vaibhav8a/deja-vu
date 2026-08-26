@@ -356,6 +356,7 @@ func rebuild(dir string, harness string, scope string, files map[string]FileStat
 
 func rebuildWithTombstones(dir string, harness string, scope string, files map[string]FileState, progress io.Writer, dead map[string]bool) error {
 	// This build's counts, not the process's: see writeSessionsWithSync (#1850).
+	beginPass()
 	emptied.Store(0)
 	collisions.Store(0)
 	// A rebuild evicts nothing, but a number left by an earlier build must not
@@ -699,6 +700,7 @@ func markShared(sessions map[string]SessionMeta, key string) {
 }
 
 func rebuildForSearch(dir string, o query.Options, scope string, files map[string]FileState, progress io.Writer) error {
+	beginPass()
 	tmp := dir + ".tmp"
 	_ = os.RemoveAll(tmp)
 	if err := os.MkdirAll(filepath.Join(tmp, "buckets"), 0o700); err != nil {
@@ -1948,12 +1950,26 @@ func carryRedactions(m *Manifest, old Manifest, skip map[string]bool) {
 	}
 }
 
+// beginPass clears the parsers' skip counters, which belong to the pass that
+// parsed. They used to be cleared only by the manifest fold, so a pass that died
+// before writing left its count for the next one to report: one bad line on
+// disk, "2 lines skipped" on screen, with the manifest agreeing (#2010).
+//
+// Called at every place a pass parses: this one, rebuildForSearch — which a
+// recall reaches directly once an index is found damaged, without passing
+// through updateIndex at all — and rebuildWithTombstones, which forget and
+// unforget call for themselves.
+func beginPass() {
+	sources.DiagSnapshot()
+}
+
 func updateIndex(dir, harness, scope string, files map[string]FileState, force bool, progress io.Writer) error {
 	// Cleared here rather than beside the other two: this build counts what
 	// went away further down, before the incremental paths reset theirs, so a
 	// reset down there would zero the number this build is about to report
 	// (#1861).
 	evicted.Store(0)
+	beginPass()
 	old, err := readManifest(dir)
 	if err == nil && !recordsIntact(dir, old) {
 		force = true // records.bin lost its tail to a crash; only a rebuild is safe
