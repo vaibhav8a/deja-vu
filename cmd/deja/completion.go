@@ -113,7 +113,7 @@ _deja_completion() {
             elif [[ "$prev" == "--role" ]]; then
                 COMPREPLY=( $(compgen -W "%ROLES%" -- "$cur") )
             else
-                COMPREPLY=( $(compgen -W "--harness --project --since --role" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--json --from --harness --project --since --role" -- "$cur") )
             fi
             ;;
         remember)
@@ -240,7 +240,7 @@ _deja() {
       _arguments '--no-guidance[skip guidance files]' "1:target:($install_targets)"
       ;;
     last)
-      _arguments '--harness=[filter by harness]:harness:($harnesses)' '--project=[filter by project]:project:' '--since=[filter by age]:duration:' '--role=[filter by role]:role:(%ROLES%)' '1:count:'
+      _arguments '--json[print JSON]' '--from=[start from a session]:session:' '--harness=[filter by harness]:harness:($harnesses)' '--project=[filter by project]:project:' '--since=[filter by age]:duration:' '--role=[filter by role]:role:(%ROLES%)' '1:count:'
       ;;
     remember)
       _arguments '--project=[note project]:project:' '1:text:'
@@ -315,6 +315,8 @@ complete -c deja -n '__fish_seen_subcommand_from hook-context' -l plain
 complete -c deja -n '__fish_seen_subcommand_from index' -l rebuild
 complete -c deja -n '__fish_seen_subcommand_from install uninstall' -a '%INSTALL_TARGETS% --all --auto'
 complete -c deja -n '__fish_seen_subcommand_from install uninstall' -l no-guidance
+complete -c deja -n '__fish_seen_subcommand_from last' -l json
+complete -c deja -n '__fish_seen_subcommand_from last' -l from -r
 complete -c deja -n '__fish_seen_subcommand_from last' -l harness -r -a '%HARNESSES%'
 complete -c deja -n '__fish_seen_subcommand_from last' -l project -r
 complete -c deja -n '__fish_seen_subcommand_from last' -l since -r
@@ -398,7 +400,7 @@ Register-ArgumentCompleter -Native -CommandName deja -ScriptBlock {
             'last' {
                 if ($previous -eq '--harness') { $harnesses }
                 elseif ($previous -eq '--role') { @('user', 'assistant', 'tool') }
-                else { @('--harness', '--project', '--since', '--role') }
+                else { @('--json', '--from', '--harness', '--project', '--since', '--role') }
             }
             'remember' { @('--project') }
             'resume' { @('--exec') }
