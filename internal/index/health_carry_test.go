@@ -3,6 +3,7 @@ package index
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +85,150 @@ func TestTheHealthMapSurvivesAnUnrelatedPass(t *testing.T) {
 	}
 	if got := m.IngestHealth["claude"].MalformedLines; got != 0 {
 		t.Errorf("the bad line is gone from the file and the count is still %d", got)
+	}
+}
+
+// healthFixture is one claude store and the paths to build it with.
+func healthFixture(t *testing.T) (dir, proj string, turn func(id, ts, role, text string) string) {
+	t.Helper()
+	tmp := t.TempDir()
+	setHome(t, tmp)
+	t.Setenv("USERPROFILE", tmp)
+	t.Setenv("DEJA_CLAUDE_ROOT", filepath.Join(tmp, "claude"))
+	t.Setenv("DEJA_CODEX_ROOT", filepath.Join(tmp, "codex"))
+	t.Setenv("DEJA_OPENCODE_DB", filepath.Join(tmp, "none.db"))
+	t.Setenv("DEJA_NOTES_FILE", filepath.Join(tmp, "notes.jsonl"))
+	proj = filepath.Join(tmp, "claude", "-tmp-app")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	turn = func(id, ts, role, text string) string {
+		return `{"type":"` + role + `","sessionId":"` + id + `","cwd":"/tmp/app","timestamp":"` + ts +
+			`","message":{"role":"` + role + `","content":"` + text + `"}}` + "\n"
+	}
+	return filepath.Join(tmp, "index.db"), proj, turn
+}
+
+func malformedFor(t *testing.T, dir, harness string) int {
+	t.Helper()
+	m, err := readManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m.IngestHealth[harness].MalformedLines
+}
+
+// The append path reads the tail, not the file, so what it finds adds to the
+// file's count. Treating the file as re-read dropped every bad line already
+// indexed — which is every live session, since a session that continues is
+// exactly what this path is for.
+func TestAppendingToASessionKeepsItsEarlierCount(t *testing.T) {
+	dir, proj, turn := healthFixture(t)
+	path := filepath.Join(proj, "s1.jsonl")
+	if err := os.WriteFile(path, []byte(
+		turn("s1", "2026-01-02T03:04:05Z", "user", "why does pgbouncer time out")+
+			turn("s1", "2026-01-02T03:04:06Z", "user", "the pool \x1b[31mtimed out")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(dir, "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := malformedFor(t, dir, "claude"); got != 1 {
+		t.Fatalf("the build recorded %d, so the appends below measure nothing", got)
+	}
+
+	grow := func(ts, text string) {
+		t.Helper()
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(turn("s1", ts, "assistant", text)); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := Ensure(dir, "", false, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	grow("2026-01-02T03:05:00Z", "raised the pool to 40")
+	if got := malformedFor(t, dir, "claude"); got != 1 {
+		t.Errorf("the session continued and the count went to %d, but the bad line is still in the file", got)
+	}
+	grow("2026-01-02T03:06:00Z", "and it \x1b[31mstill timed out")
+	if got := malformedFor(t, dir, "claude"); got != 2 {
+		t.Errorf("two bad lines in the file, count says %d", got)
+	}
+}
+
+// A manifest written without a parse — Import writes one, and `deja sync` runs
+// it in the same process right after an index pass — must not take the pass's
+// files with it.
+func TestAManifestWrittenWithoutAParseKeepsTheCounts(t *testing.T) {
+	dir, proj, turn := healthFixture(t)
+	if err := os.WriteFile(filepath.Join(proj, "s1.jsonl"), []byte(
+		turn("s1", "2026-01-02T03:04:05Z", "user", "why does pgbouncer time out")+
+			turn("s1", "2026-01-02T03:04:06Z", "user", "the pool \x1b[31mtimed out")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(dir, "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := malformedFor(t, dir, "claude"); got != 1 {
+		t.Fatalf("the build recorded %d, so this measures nothing", got)
+	}
+	m, err := readManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeManifest(dir, m); err != nil {
+		t.Fatal(err)
+	}
+	if got := malformedFor(t, dir, "claude"); got != 1 {
+		t.Errorf("a manifest write that parsed nothing left the count at %d", got)
+	}
+}
+
+// The clip count is this pass's — it is recorded during redaction, before the
+// fold — so seeding the new manifest with the old total made every re-read of a
+// clipped file add to it: one long message counted as two, then three.
+func TestAClippedMessageIsCountedOncePerPass(t *testing.T) {
+	dir, proj, turn := healthFixture(t)
+	path := filepath.Join(proj, "s1.jsonl")
+	long := strings.Repeat("pgbouncer pool timed out and the retry took a second ", 1600)
+	if len(long) < maxIndexedText {
+		t.Fatalf("the fixture message is %d bytes, under the %d that gets it clipped", len(long), maxIndexedText)
+	}
+	if err := os.WriteFile(path, []byte(turn("s1", "2026-01-02T03:04:05Z", "user", long)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(dir, "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	clipped := func() int {
+		t.Helper()
+		m, err := readManifest(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.IngestHealth["claude"].ClippedMessages
+	}
+	if got := clipped(); got != 1 {
+		t.Fatalf("the build clipped %d messages, so this measures nothing", got)
+	}
+	for i, tail := range []string{"first answer", "second answer", "third answer"} {
+		if err := os.WriteFile(path, []byte(
+			turn("s1", "2026-01-02T03:04:05Z", "user", long)+
+				turn("s1", "2026-01-02T03:04:06Z", "assistant", tail)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := Ensure(dir, "", false, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := clipped(); got != 1 {
+			t.Fatalf("one long message in the file, rewrite %d says %d clipped", i+1, got)
+		}
 	}
 }

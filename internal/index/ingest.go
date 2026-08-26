@@ -99,6 +99,10 @@ func mergeIngestDiag(m *Manifest) {
 		m.IngestFiles = nil
 	}
 	m.IngestHealth = healthFromFiles(m.IngestFiles, m.IngestHealth)
+	// The set belongs to the pass that recorded it. Left standing, it deleted
+	// those files' entries again on the next manifest write in the process —
+	// and `deja sync` writes one, from Import, right after a pass.
+	passParsed = nil
 }
 
 // healthFromFiles sums the per-file counts per harness. The clip count is not
@@ -2193,7 +2197,7 @@ func updateIndex(dir, harness, scope string, files map[string]FileState, force b
 		// doctor forgot a store's unreadable file because an unrelated
 		// transcript changed (#2015). A store this pass re-read starts over,
 		// because a file rewritten clean has to be able to clear its count.
-		IngestHealth: old.IngestHealth, IngestFiles: copyIngestFiles(old.IngestFiles)}
+		IngestFiles: copyIngestFiles(old.IngestFiles)}
 	skipRedactions := map[string]bool{}
 	for p := range changed {
 		skipRedactions[p] = true
@@ -2429,7 +2433,10 @@ func appendIncremental(dir, harness, scope string, old Manifest, files map[strin
 	emptied.Store(0)
 	collisions.Store(0)
 	lastIngestFiles = len(changed)
-	parsedThisPass(changed)
+	// Deliberately not parsedThisPass: this path reads the appended tail, not
+	// the file, so what it finds adds to the file's count instead of replacing
+	// it. Marking the file re-read dropped every bad line in the part already
+	// indexed — which is every live session.
 	rf, err := os.OpenFile(filepath.Join(dir, "records.bin"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return 0, 0, 0, err
