@@ -89,7 +89,7 @@ _deja_completion() {
             COMPREPLY=( $(compgen -W "--json --offline --deep" -- "$cur") )
             ;;
         forget)
-            COMPREPLY=( $(compgen -W "--list --dry-run --session --project --before --unforget" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--list --dry-run --session --project --before --unforget --all-matches" -- "$cur") )
             ;;
         handoff)
             if [[ "$prev" == "--to" ]]; then
@@ -117,7 +117,7 @@ _deja_completion() {
             fi
             ;;
         remember)
-            COMPREPLY=( $(compgen -W "--project" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--project --tag" -- "$cur") )
             ;;
         resume)
             COMPREPLY=( $(compgen -W "--exec" -- "$cur") )
@@ -232,7 +232,7 @@ _deja() {
       _arguments '--json[print JSON]' '--offline[skip version check]' '--deep[verify index against sources]'
       ;;
     forget)
-      _arguments '--list[list tombstones]' '--dry-run[show changes without applying]' '--session=[session ID prefix]:session:' '--project=[project substring]:project:' '--before=[duration or date]:time:' '--unforget=[tombstone ID]:ID:'
+      _arguments '--list[list tombstones]' '--dry-run[show changes without applying]' '--session=[session ID prefix]:session:' '--project=[project substring]:project:' '--before=[duration or date]:time:' '--unforget=[tombstone ID]:ID:' '--all-matches[act on every match]'
       ;;
     handoff)
       _arguments '--to=[target agent]:agent:(%HANDOFF_TARGETS%)' '--exec[launch the target agent]' '1:session ID prefix:'
@@ -250,7 +250,7 @@ _deja() {
       _arguments '--harness=[filter by harness]:harness:($harnesses)' '--project=[filter by project]:project:' '--since=[filter by age]:duration:' '--role=[filter by role]:role:(%ROLES%)' '1:count:'
       ;;
     remember)
-      _arguments '--project=[note project]:project:' '1:text:'
+      _arguments '--project=[note project]:project:' '*--tag=[tag the note, repeatable]:tag:' '1:text:'
       ;;
     resume)
       _arguments '--exec[launch the native harness]' '1:session ID prefix:'
@@ -319,6 +319,7 @@ complete -c deja -n '__fish_seen_subcommand_from forget' -l session -r
 complete -c deja -n '__fish_seen_subcommand_from forget' -l project -r
 complete -c deja -n '__fish_seen_subcommand_from forget' -l before -r
 complete -c deja -n '__fish_seen_subcommand_from forget' -l unforget -r
+complete -c deja -n '__fish_seen_subcommand_from forget' -l all-matches
 complete -c deja -n '__fish_seen_subcommand_from handoff' -l to -r -a '%HANDOFF_TARGETS%'
 complete -c deja -n '__fish_seen_subcommand_from handoff' -l exec
 complete -c deja -n '__fish_seen_subcommand_from hook-context' -l plain
@@ -334,6 +335,7 @@ complete -c deja -n '__fish_seen_subcommand_from last' -l project -r
 complete -c deja -n '__fish_seen_subcommand_from last' -l since -r
 complete -c deja -n '__fish_seen_subcommand_from last' -l role -r -a '%ROLES%'
 complete -c deja -n '__fish_seen_subcommand_from remember' -l project -r
+complete -c deja -n '__fish_seen_subcommand_from remember' -l tag -r
 complete -c deja -n '__fish_seen_subcommand_from resume' -l exec
 complete -c deja -n '__fish_seen_subcommand_from stats' -l json
 complete -c deja -n '__fish_seen_subcommand_from stats' -l impact
@@ -401,7 +403,7 @@ Register-ArgumentCompleter -Native -CommandName deja -ScriptBlock {
             }
             'completion' { @('bash', 'zsh', 'fish', 'powershell', 'pwsh') }
             'doctor' { @('--json', '--offline', '--deep') }
-            'forget' { @('--list', '--dry-run', '--session', '--project', '--before', '--unforget') }
+            'forget' { @('--list', '--dry-run', '--session', '--project', '--before', '--unforget', '--all-matches') }
             'handoff' {
                 if ($previous -eq '--to') { $handoffTargets }
                 else { @('--to', '--exec') }
@@ -414,7 +416,7 @@ Register-ArgumentCompleter -Native -CommandName deja -ScriptBlock {
                 elseif ($previous -eq '--role') { @('user', 'assistant', 'tool') }
                 else { @('--harness', '--project', '--since', '--role') }
             }
-            'remember' { @('--project') }
+            'remember' { @('--project', '--tag') }
             'resume' { @('--exec') }
             'stats' {
                 if ($previous -eq '--harness') { $harnesses }
