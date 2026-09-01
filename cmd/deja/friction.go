@@ -13,6 +13,7 @@ import (
 	"github.com/vshulcz/deja-vu/internal/index"
 	"github.com/vshulcz/deja-vu/internal/jsonout"
 	"github.com/vshulcz/deja-vu/internal/policy"
+	"github.com/vshulcz/deja-vu/internal/search"
 )
 
 // `deja friction` names what this machine keeps tripping over.
@@ -292,10 +293,11 @@ func writeFrictionJSON(stdout io.Writer, rows []frictionRow, sessionsRead, limit
 	out := make([]frictionRowJSON, 0, len(rows))
 	for _, r := range rows {
 		row := frictionRowJSON{
-			// Same sanitiser the prose path uses. A recorded error line is
-			// untrusted text, and a JSON consumer pasting it into a shell is
-			// no safer than a human reading it.
-			Error:     trimFriction(r.line),
+			// Sanitised, but not truncated. trimFriction bounds the line to 79
+			// bytes because that is what fits a terminal row; a JSON consumer
+			// has no such row, and a clipped error can no longer be matched
+			// against the error it came from or passed back to `deja fix`.
+			Error:     search.SafeLine(r.line),
 			Sessions:  r.n,
 			Harnesses: r.harnesses,
 		}
