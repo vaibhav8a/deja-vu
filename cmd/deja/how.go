@@ -142,7 +142,7 @@ func runHow(dir string, args []string, stdout io.Writer) error {
 		fmt.Fprint(os.Stderr, note)
 	}
 	if asJSON {
-		return writeHowJSON(stdout, entries, limit)
+		return writeHowJSON(stdout, entries, limit, hidden, ignored)
 	}
 	if len(entries) == 0 {
 		if note := policyHiddenNote(policy.ActivationSearch, hidden); note != "" {
@@ -373,10 +373,19 @@ func isCommandWordRune(r rune) bool {
 // the cap note lives on stderr, so a caller reading stdout alone cannot otherwise tell
 // eight ways to run the tests from thirteen.
 type howJSON struct {
-	SchemaVersion int          `json:"schema_version"`
-	Found         int          `json:"found"`
-	Truncated     bool         `json:"truncated"`
-	Commands      []howRowJSON `json:"commands"`
+	SchemaVersion int  `json:"schema_version"`
+	Found         int  `json:"found"`
+	Truncated     bool `json:"truncated"`
+	// Withheld and Ignored are what the two rules took out before any of this
+	// was counted. howEntries carries them for a stated reason — filtering on
+	// its own turns a leak into a confident "no command mentions that" over
+	// records a rule hid — and the prose path says so in a sentence. Without
+	// them here the envelope reintroduces exactly what the counts exist to
+	// prevent: `commands: []` reads as "nothing matched" when it can mean
+	// "everything that matched was withheld".
+	Withheld int          `json:"withheld"`
+	Ignored  int          `json:"ignored"`
+	Commands []howRowJSON `json:"commands"`
 }
 
 type howRowJSON struct {
@@ -398,7 +407,7 @@ type howRowJSON struct {
 	ExitCode *int `json:"exit_code,omitempty"`
 }
 
-func writeHowJSON(stdout io.Writer, entries []howEntry, limit int) error {
+func writeHowJSON(stdout io.Writer, entries []howEntry, limit, withheld, ignored int) error {
 	found := len(entries)
 	if len(entries) > limit {
 		entries = entries[:limit]
@@ -430,6 +439,8 @@ func writeHowJSON(stdout io.Writer, entries []howEntry, limit int) error {
 		SchemaVersion: jsonout.Version,
 		Found:         found,
 		Truncated:     found > len(rows),
+		Withheld:      withheld,
+		Ignored:       ignored,
 		Commands:      rows,
 	})
 }

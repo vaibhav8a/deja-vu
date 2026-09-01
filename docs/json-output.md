@@ -468,6 +468,8 @@ The real command this machine runs for a given tool:
   "schema_version": 2,
   "found": 13,
   "truncated": true,
+  "withheld": 0,
+  "ignored": 0,
   "commands": [
     {
       "command": "go test ./... -race",
@@ -494,6 +496,12 @@ flag rather than trust it blind — only about one run record in a hundred carri
 an exit status at all, and `failed_every_time` is false whenever deja knows the
 outcome of no run. `exit_code` is present only when every recorded failure
 agreed on one.
+
+`withheld` and `ignored` are what the trust policy and the ignore rule took out
+before any of this was counted. Without them an empty `commands` means both
+"nothing matched" and "everything that matched was hidden" — which is the reason
+the count travels with the entries in the first place, and what the prose path
+says in a sentence.
 
 `last` is omitted rather than zero-valued when a command carries no recorded
 time. An empty result keeps the envelope and returns `commands: []`.
