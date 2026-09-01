@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vshulcz/deja-vu/internal/index"
+	"github.com/vshulcz/deja-vu/internal/jsonout"
 	"github.com/vshulcz/deja-vu/internal/policy"
 )
 
@@ -27,12 +29,18 @@ import (
 
 func runFriction(dir string, args []string, stdout io.Writer) error {
 	limit := 10
+	asJSON := false
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--json" {
+			asJSON = true
+			continue
+		}
 		// Anything else used to be dropped on the floor, so `deja friction
 		// --json` and `--limt 3` answered in prose and exited 0 as though they
-		// had been understood (#2253).
+		// had been understood (#2253). --json is answered now rather than
+		// refused (#1932); anything else still refuses.
 		if args[i] != "--limit" {
-			return fmt.Errorf("friction: unknown flag %q — it takes --limit n", args[i])
+			return fmt.Errorf("friction: unknown flag %q — it takes --limit n and --json", args[i])
 		}
 		if i+1 >= len(args) {
 			return fmt.Errorf("friction: --limit needs value")
@@ -115,13 +123,7 @@ func runFriction(dir string, args []string, stdout io.Writer) error {
 		fmt.Fprint(os.Stderr, note)
 	}
 
-	type row struct {
-		line      string
-		when      time.Time
-		n         int
-		harnesses []string
-	}
-	var rows []row
+	var rows []frictionRow
 	for _, s := range found {
 		line := s.text
 		if len(s.sessions) < index.FrictionMinSessions {
@@ -132,7 +134,7 @@ func runFriction(dir string, args []string, stdout io.Writer) error {
 			hs = append(hs, h)
 		}
 		sort.Strings(hs)
-		rows = append(rows, row{line, s.last, len(s.sessions), hs})
+		rows = append(rows, frictionRow{line, s.last, len(s.sessions), hs})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].n != rows[j].n {
@@ -140,6 +142,9 @@ func runFriction(dir string, args []string, stdout io.Writer) error {
 		}
 		return rows[i].line < rows[j].line
 	})
+	if asJSON {
+		return writeFrictionJSON(stdout, rows, len(sessions), limit)
+	}
 	if len(rows) == 0 {
 		// The count is sessions-with-tool-output, and it reads as
 		// sessions-indexed: a store with six conversations reported zero,
@@ -240,4 +245,73 @@ func emptiedBy(pol policy.Policy) string {
 		return "the ignore rule (" + strings.Join(pol.IgnorePatterns(), ", ") + ")"
 	}
 	return "the trust policy (" + policy.ActivationSearch + ": " + pol.Describe(policy.ActivationSearch) + ")"
+}
+
+// frictionRow is one recurring error, shared by the prose and JSON renderers so
+// they cannot disagree about what a row is.
+type frictionRow struct {
+	line      string
+	when      time.Time
+	n         int
+	harnesses []string
+}
+
+// frictionJSON is the `deja friction --json` envelope. See docs/json-output.md.
+//
+// Carries the two counts a caller cannot recover from the rows, on the same
+// reasoning as the v2 search envelope: how many recurring errors there were
+// before the cap, and whether the cap hid any. Reading len(rows) answers
+// neither once --limit is in play.
+//
+// sessions_read is the denominator the prose header states, and min_sessions is
+// the threshold a row had to clear — without it a consumer cannot tell an empty
+// result meaning "nothing recurs" from one meaning "nothing recurred twice".
+type frictionJSON struct {
+	SchemaVersion int               `json:"schema_version"`
+	SessionsRead  int               `json:"sessions_read"`
+	MinSessions   int               `json:"min_sessions"`
+	Total         int               `json:"total"`
+	Truncated     bool              `json:"truncated"`
+	Rows          []frictionRowJSON `json:"rows"`
+}
+
+type frictionRowJSON struct {
+	Error     string   `json:"error"`
+	Sessions  int      `json:"sessions"`
+	Harnesses []string `json:"harnesses"`
+	// Omitted rather than zero-valued, like the fix envelope: a row with no
+	// recorded time is a real state and "0001-01-01" is not a date.
+	Last string `json:"last,omitempty"`
+}
+
+func writeFrictionJSON(stdout io.Writer, rows []frictionRow, sessionsRead, limit int) error {
+	total := len(rows)
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]frictionRowJSON, 0, len(rows))
+	for _, r := range rows {
+		row := frictionRowJSON{
+			// Same sanitiser the prose path uses. A recorded error line is
+			// untrusted text, and a JSON consumer pasting it into a shell is
+			// no safer than a human reading it.
+			Error:     trimFriction(r.line),
+			Sessions:  r.n,
+			Harnesses: r.harnesses,
+		}
+		if !r.when.IsZero() {
+			row.Last = r.when.UTC().Format(time.RFC3339)
+		}
+		out = append(out, row)
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(frictionJSON{
+		SchemaVersion: jsonout.Version,
+		SessionsRead:  sessionsRead,
+		MinSessions:   index.FrictionMinSessions,
+		Total:         total,
+		Truncated:     total > len(rows),
+		Rows:          out,
+	})
 }
