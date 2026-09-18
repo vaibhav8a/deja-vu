@@ -108,7 +108,7 @@ func runStats(dir string, args []string) error {
 				sinceRaw = v
 			}
 		default:
-			return fmt.Errorf("stats: unknown flag %q", args[i])
+			return unknownFlag("stats", args[i], statsFlags)
 		}
 	}
 	if (jsonOut && card) || (jsonOut && html) || (card && html) {

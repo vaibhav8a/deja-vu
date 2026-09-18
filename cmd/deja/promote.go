@@ -56,7 +56,7 @@ func runPromote(dir string, args []string, stdout io.Writer) error {
 			tags = append(tags, args[i])
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return fmt.Errorf("promote: unknown flag %q", args[i])
+				return unknownFlag("promote", args[i], promoteFlags)
 			}
 			prefix = args[i]
 		}

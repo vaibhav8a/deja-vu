@@ -52,7 +52,7 @@ func runHandoff(dir string, args []string, stdout io.Writer) error {
 			doExec = true
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return fmt.Errorf("handoff: unknown flag %q", args[i])
+				return unknownFlag("handoff", args[i], handoffFlags)
 			}
 			// The last one used to win, so a stray word replaced the id and
 			// the refusal named it as the session that was missing (#2251).

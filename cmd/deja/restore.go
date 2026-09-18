@@ -68,7 +68,7 @@ func runRestore(dir string, args []string, stdout io.Writer) error {
 			out = args[i]
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return fmt.Errorf("restore: unknown flag %q", args[i])
+				return unknownFlag("restore", args[i], restoreFlags)
 			}
 			if path == "" {
 				path = args[i]

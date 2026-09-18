@@ -64,7 +64,7 @@ func runRemember(dir string, args []string) error {
 			continue
 		}
 		if strings.HasPrefix(args[i], "-") {
-			return fmt.Errorf("remember: unknown flag %q", args[i])
+			return unknownFlag("remember", args[i], rememberFlags)
 		}
 		if text != "" {
 			return fmt.Errorf("remember: expected one text argument")

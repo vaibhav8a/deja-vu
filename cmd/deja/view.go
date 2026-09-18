@@ -111,7 +111,7 @@ func runView(dir string, args []string) error {
 		case "--no-open":
 			openBrowser = false
 		default:
-			return fmt.Errorf("view: unknown flag %q", args[i])
+			return unknownFlag("view", args[i], viewFlags)
 		}
 	}
 	if err := index.EnsureForSearch(dir, query.Options{All: true}, false, os.Stderr); err != nil {

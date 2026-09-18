@@ -72,7 +72,7 @@ func runDoctor(w io.Writer, args []string, lookup doctorVersionLookup, dir strin
 		case "--deep":
 			deep = true
 		default:
-			return fmt.Errorf("doctor: unknown flag %q", arg)
+			return unknownFlag("doctor", arg, doctorFlags)
 		}
 	}
 	if offline {

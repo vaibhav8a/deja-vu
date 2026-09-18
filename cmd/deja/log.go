@@ -32,7 +32,7 @@ func runLogTo(w io.Writer, dir string, args []string) error {
 		default:
 			x, err := strconv.Atoi(a)
 			if err != nil {
-				return fmt.Errorf("log: unknown flag %q", a)
+				return unknownFlag("log", a, logFlags)
 			}
 			// A number is not a flag, and saying so sends the reader looking
 			// for a flag they never typed (#733).
