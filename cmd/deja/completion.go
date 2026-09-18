@@ -59,7 +59,7 @@ _deja_completion() {
     local install_targets="%INSTALL_TARGETS% --all --auto"
 
     if (( COMP_CWORD == 1 )); then
-        COMPREPLY=( $(compgen -W "$commands --version -version --json --re --all --no-embed --harness --project --since --role --session --rebuild --limit" -- "$cur") )
+        COMPREPLY=( $(compgen -W "$commands --version -version --json --re --all --no-embed --harness --project --since --role --session --rebuild --quiet --limit" -- "$cur") )
         return
     fi
 
@@ -102,7 +102,7 @@ _deja_completion() {
             COMPREPLY=( $(compgen -W "--plain --once" -- "$cur") )
             ;;
         index)
-            COMPREPLY=( $(compgen -W "--rebuild -rebuild" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--rebuild -rebuild --quiet -quiet" -- "$cur") )
             ;;
         install|uninstall)
             COMPREPLY=( $(compgen -W "$install_targets --no-guidance" -- "$cur") )
@@ -154,7 +154,7 @@ _deja_completion() {
             if [[ "$prev" == "--harness" ]]; then
                 COMPREPLY=( $(compgen -W "$harnesses" -- "$cur") )
             else
-                COMPREPLY=( $(compgen -W "--json --re --all --no-embed --harness --project --since --role --session --rebuild --limit" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--json --re --all --no-embed --harness --project --since --role --session --rebuild --quiet --limit" -- "$cur") )
             fi
             ;;
     esac
@@ -243,7 +243,7 @@ _deja() {
       _arguments '--plain[omit formatting]' '--once[one digest per session]'
       ;;
     index)
-      _arguments '--rebuild[force a full rebuild]' '-rebuild[force a full rebuild]'
+      _arguments '--rebuild[force a full rebuild]' '-rebuild[force a full rebuild]' '--quiet[say nothing when it worked]' '-quiet[say nothing when it worked]'
       ;;
     install|uninstall)
       _arguments '--no-guidance[skip guidance files]' "1:target:($install_targets)"
@@ -277,7 +277,7 @@ _deja() {
     check|ctx|embed|hook-precompact|hook-prompt|mcp|share|sources|statusline|update|version|warmup)
       ;;
     *)
-      _arguments '--json[print JSON]' '--re[interpret query as a regular expression]' '--all[include all results]' '--no-embed[skip semantic reranking]' '--harness=[filter by harness]:harness:($harnesses)' '--project=[filter by project]:project:' '--since=[filter by age]:duration:' '--role=[filter by role]:role:(%ROLES%)' '--session=[only one session]:id:' '--rebuild[force a full rebuild]' '--limit=[max sessions to return (1-100)]:count:'
+      _arguments '--json[print JSON]' '--re[interpret query as a regular expression]' '--all[include all results]' '--no-embed[skip semantic reranking]' '--harness=[filter by harness]:harness:($harnesses)' '--project=[filter by project]:project:' '--since=[filter by age]:duration:' '--role=[filter by role]:role:(%ROLES%)' '--session=[only one session]:id:' '--rebuild[force a full rebuild]' '--quiet[say nothing when it worked]' '--limit=[max sessions to return (1-100)]:count:'
       ;;
   esac
 }
