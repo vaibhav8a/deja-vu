@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -29,13 +28,12 @@ type BlameTarget struct {
 	// it is what the line-level answer needs to turn a line into the commit
 	// that wrote it (#1181).
 	Line int
-	// LineSpec is what came after the colon when it was meant as a line and
-	// could not be used: `:0`, a number past what fits in an int, `:abc`. The
-	// line answer says which silence it is when it cannot answer (#3726), and
-	// said nothing at all when the spec itself was the problem — the file
-	// answer printed as if no line had been asked for, so a typed mistake read
-	// as "this file has no history" (#3738).
-	LineSpec string
+	// LineNote says why a line spec the reader typed was not used, and is
+	// empty when they typed none or typed a usable one. `a.txt:99` already
+	// says "the file has 3 lines" (#3726); `a.txt:0` and `a.txt:abc` said
+	// nothing at all and answered about the file as though no line had been
+	// asked for (#3738).
+	LineNote string
 }
 
 type BlameOptions struct {
@@ -115,7 +113,7 @@ func ResolveBlamePath(name string) (BlameTarget, error) {
 	if name == "" {
 		return BlameTarget{}, fmt.Errorf("path required")
 	}
-	name, line, spec := cutLineSuffix(name)
+	name, line, lineNote := cutLineSuffix(name)
 	full, err := filepath.Abs(name)
 	if err != nil {
 		return BlameTarget{}, err
@@ -129,42 +127,62 @@ func ResolveBlamePath(name string) (BlameTarget, error) {
 	if stem == "" {
 		stem = base
 	}
-	return BlameTarget{FullPath: full, Base: base, Stem: stem, Line: line, LineSpec: spec}, nil
+	return BlameTarget{
+		FullPath: full,
+		Base:     base,
+		Stem:     stem,
+		Line:     line,
+		LineNote: lineNote,
+	}, nil
 }
 
 // cutLineSuffix is trimLineSuffix that keeps the number it cut: the first one,
 // so `file.go:120:14` reads as line 120 rather than column 14.
 //
-// The third return is that number when it cannot be used — `:0`, or one past
-// what an int holds. The caller says so rather than answering about the file as
-// if nothing had been asked (#3738).
+// The third return is what to say when a line spec was typed and cannot be
+// used. Falling back to the file-level answer is right — it is a correct
+// answer to a near-miss question — but doing it silently reads as though the
+// line had never been asked about, which is the thing #3726 set out to stop
+// one case earlier (#3738).
 func cutLineSuffix(name string) (string, int, string) {
 	trimmed := trimLineSuffix(name)
 	if trimmed == name {
-		return name, 0, unusableLineSpec(name)
+		return name, 0, mistypedLineNote(name)
 	}
 	rest := strings.TrimPrefix(name[len(trimmed):], ":")
 	head, _, _ := strings.Cut(rest, ":")
 	n, err := strconv.Atoi(head)
-	if err != nil || n <= 0 {
-		return trimmed, 0, head
+	if err != nil {
+		// Digits trimLineSuffix accepted but strconv could not: a number past
+		// what an int holds. It is a line spec, just not a reachable line.
+		return trimmed, 0, fmt.Sprintf("%q is too large to be a line number", head)
+	}
+	if n <= 0 {
+		return trimmed, 0, fmt.Sprintf("there is no line %d", n)
 	}
 	return trimmed, n, ""
 }
 
-// unusableLineSpec is what a reader put after a colon that the trim would not
-// take as a line: `:abc`, `:2.5`, `:-1`. Only when nothing of that name is on
-// disk — a file may legitimately carry a colon, and its own name is not a
-// mistake to report.
-func unusableLineSpec(name string) string {
+// mistypedLineNote covers the specs trimLineSuffix never cut, because what
+// follows the colon is not digits: `a.txt:abc`, `a.txt:-1`, `a.txt:2.5`. The
+// whole string stays the path, which is the behaviour a colon in a real
+// filename needs, so this says what the reader probably meant rather than
+// changing what is searched.
+//
+// Narrow on purpose: only when the part before the colon looks like a filename
+// — it has an extension — and the part after holds no separator. `notes:draft`
+// and `C:\src\main.go` are left alone. A file genuinely named `a.txt:abc`
+// would collect the note and still be searched for as written, which is a
+// sentence too many rather than a wrong answer.
+func mistypedLineNote(name string) string {
 	head, tail, ok := lastColon(name)
-	if !ok || tail == "" || head == "" || allDigits(tail) {
+	if !ok || tail == "" || allDigits(tail) {
 		return ""
 	}
-	if _, err := os.Stat(name); err == nil {
+	if strings.ContainsAny(tail, "/\\") || filepath.Ext(head) == "" {
 		return ""
 	}
-	return tail
+	return fmt.Sprintf("%q is not a line number", tail)
 }
 
 // Blame ranks every session that carries evidence for the file, in full. The

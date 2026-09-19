@@ -2787,6 +2787,12 @@ func runBlame(dir string, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Before the answer, because the answer is about the file and the reader
+	// asked about a line: said afterwards it reads as a footnote to a result
+	// they think is line-level (#3738).
+	if target.LineNote != "" && !jsonOutput {
+		fmt.Fprintf(os.Stderr, "deja: %s — answering for the whole file\n", target.LineNote)
+	}
 	hits, hidden, total, err := findBlameHits(dir, target, o, policy.ActivationSearch, os.Stderr)
 	if err != nil {
 		return fmt.Errorf("blame search: %w", err)
