@@ -3218,6 +3218,19 @@ func printSources(dir string) {
 	if red, err := index.Redactions(dir); err == nil {
 		redactions = red.Files
 	}
+	// Transcripts a store holds that the index has never read. doctor has said
+	// so since #3747, but `deja sources` is the command people run first, and
+	// its session count reads as "nothing written yet" rather than "files never
+	// opened" — which is exactly how ten unread transcripts, five of them eight
+	// weeks old, went unnoticed on a real store (#3752). Nil before the first
+	// index, and then there is nothing to say.
+	neverRead := index.HarnessUnreadCounts(dir)
+	unreadNote := func(name string) string {
+		if u := neverRead[name]; u > 0 {
+			return "\t(" + doctorCount(u, "transcript") + " never read — `deja index`)"
+		}
+		return ""
+	}
 	antigravityRoots := sources.AntigravityRoots()
 	antigravityLocation := strings.Join(antigravityRoots, string(os.PathListSeparator))
 	if antigravityLocation == "" {
@@ -3334,6 +3347,7 @@ func printSources(dir string) {
 		if excluded > 0 {
 			note += fmt.Sprintf("\texcluded-sessions=%d", excluded)
 		}
+		note += unreadNote(it.name)
 		fmt.Printf("%s\t%s\tsessions=%d messages=%d size=%s redacted=%d%s\n", it.name, location, sources.CountSessions(ss), msg, humanBytes(size), redacted, note)
 	}
 	// The two rows below are written by hand rather than driven by the table
@@ -3379,6 +3393,7 @@ func printSources(dir string) {
 	if excluded := len(rawAiderSessions) - len(aiderSessions); excluded > 0 {
 		note += fmt.Sprintf("\texcluded-sessions=%d", excluded)
 	}
+	note += unreadNote("aider")
 	if !skipAider {
 		fmt.Printf("aider\t%s\tsessions=%d messages=%d size=%s redacted=%d%s\n", aiderLocation, sources.CountSessions(aiderSessions), aiderMessages, humanBytes(aiderSize), aiderRedactions, note)
 	}
@@ -3437,6 +3452,7 @@ func printSources(dir string) {
 		}
 		note = "\t(cannot be read — " + reason + ")" + note
 	}
+	note += unreadNote("opencode")
 	fmt.Printf("opencode\t%s\tsessions=%d messages=%d size=%s redacted=%d%s\n", sources.OpencodeDB(), s, m, humanBytes(size), redactions[sources.OpencodeDB()], note)
 }
 

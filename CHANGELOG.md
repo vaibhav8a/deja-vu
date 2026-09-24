@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `deja forget --list` marks a tombstone whose session is gone everywhere — in neither the index nor any store — as suppressing nothing. A leftover from a session deleted on disk printed exactly like one somebody forgot yesterday. The row still starts with its id and the list is still one line per tombstone; a machine with no leftovers sees no change.
+- `deja sources` says when a store holds transcripts the index has never read, in the words `deja doctor` has used since #3747: ``(2 transcripts never read — `deja index`)``. It is the command people run first, and its session count read as "nothing written yet" rather than "files never opened". A store with none says nothing.
 - The line before an edit hands over the command those sessions ran, when the transcript saw it pass: `store_test.go has been worked on in 2 sessions — ran here and passed: ` and the command. A file two sessions agree on clears the same bar a decision does.
 - opencode gets the point-of-action line at all. Both plugin shapes wired their tool seams to a tool name, so a read produced nothing there; the file action now goes out from `tool.execute.after`, which is the only seam opencode has that reaches the model. Measured on a 325-file fixture: the same task cost 40k tokens against 70k with deja and no line, and 136k with no memory.
 
