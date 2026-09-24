@@ -3440,6 +3440,52 @@ func printSources(dir string) {
 	fmt.Printf("opencode\t%s\tsessions=%d messages=%d size=%s redacted=%d%s\n", sources.OpencodeDB(), s, m, humanBytes(size), redactions[sources.OpencodeDB()], note)
 }
 
+// orphanedTombstones reports which tombstones name a session that exists
+// nowhere: not in the index and not in any store on disk.
+//
+// Only a positive answer is ever given. A tombstone whose harness this build
+// does not know, or whose store cannot be loaded, is left unmarked — calling a
+// tombstone useless on a guess would invite someone to lift one that is still
+// hiding a transcript.
+func orphanedTombstones(dir string, keys []string) map[string]bool {
+	if len(keys) == 0 {
+		return nil
+	}
+	indexed := index.IndexedSessionKeys(dir)
+	// Load each harness a tombstone names once, however many tombstones name it.
+	onDisk := map[string]map[string]bool{}
+	live := func(harness string) (map[string]bool, bool) {
+		if seen, ok := onDisk[harness]; ok {
+			return seen, seen != nil
+		}
+		var found map[string]bool
+		for _, h := range sources.Registry() {
+			if h.Name != harness || h.Load == nil {
+				continue
+			}
+			found = map[string]bool{}
+			for _, s := range h.Load() {
+				found[s.Harness+":"+s.ID] = true
+			}
+		}
+		onDisk[harness] = found
+		return found, found != nil
+	}
+	out := map[string]bool{}
+	for _, key := range keys {
+		harness, _, ok := strings.Cut(key, ":")
+		if !ok || indexed[key] {
+			continue
+		}
+		stored, known := live(harness)
+		if !known || stored[key] {
+			continue
+		}
+		out[key] = true
+	}
+	return out
+}
+
 // forgetScopeRefusal stops a destructive run whose selector reaches further
 // than the reader can have meant.
 //
@@ -3546,7 +3592,17 @@ func runForget(dir string, args []string) error {
 	}
 	if list {
 		keys := index.Tombstones()
+		// A tombstone whose session is in neither the index nor any store
+		// suppresses nothing: it is left over from a session deleted on disk
+		// since, and nothing told it apart from one somebody forgot yesterday
+		// (#3753). Marked after a tab, so each row still starts with its id and
+		// the list is still one line per tombstone.
+		orphaned := orphanedTombstones(dir, keys)
 		for _, key := range keys {
+			if orphaned[key] {
+				fmt.Fprintln(os.Stdout, key+"\t(no session left — the tombstone suppresses nothing)")
+				continue
+			}
 			fmt.Fprintln(os.Stdout, key)
 		}
 		// The list is where someone who dropped more than they meant to lands,
