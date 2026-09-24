@@ -42,8 +42,11 @@ func TestEveryExtensionIsListedWhereItIsInstalledFrom(t *testing.T) {
 		install[m[1]] = strings.Trim(m[2], "`")
 	}
 
-	readme := string(repoFile(t, "README.md"))
-	guide := html.UnescapeString(string(repoFile(t, "docs/guide/getting-started.html")))
+	pages := map[string]string{
+		"README.md":                       string(repoFile(t, "README.md")),
+		"README.zh.md":                    string(repoFile(t, "README.zh.md")),
+		"docs/guide/getting-started.html": html.UnescapeString(string(repoFile(t, "docs/guide/getting-started.html"))),
+	}
 
 	for _, dir := range dirs {
 		cmd, ok := install[dir]
@@ -51,11 +54,10 @@ func TestEveryExtensionIsListedWhereItIsInstalledFrom(t *testing.T) {
 			t.Errorf("extensions/%s/ has no row in extensions/README.md", dir)
 			continue
 		}
-		if !strings.Contains(readme, cmd) {
-			t.Errorf("README.md does not say how to install extensions/%s/ — want %q", dir, cmd)
-		}
-		if !strings.Contains(guide, cmd) {
-			t.Errorf("docs/guide/getting-started.html does not say how to install extensions/%s/ — want %q", dir, cmd)
+		for name, page := range pages {
+			if !strings.Contains(page, cmd) {
+				t.Errorf("%s does not say how to install extensions/%s/ — want %q", name, dir, cmd)
+			}
 		}
 	}
 }
