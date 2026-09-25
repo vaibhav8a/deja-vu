@@ -24,7 +24,7 @@ and what it cannot.</p>
 
 <p align="center">
 <b>58% fewer tokens</b> on a task this machine had already solved &middot; <b>88.1% hit@1</b> on LongMemEval-S (470-question cleaned set) &middot; <b>70.5% retrieval hit@1</b> on LoCoMo &middot; <b>millisecond</b> lookups over gigabytes of history<br>
-<sub>Eleven runs an arm: 53,558 tokens against 126,222 with nothing wired, and 71% off on a later run of the same stand &middot;
+<sub>Eleven runs an arm: 53,558 tokens against 126,222 with nothing wired, and 52,815 against 103,443 on a later build with the two arms run alternately &middot;
 <a href="https://vshulcz.github.io/deja-vu/guide/day-zero.html">what it costs to finish one task</a> &middot;
 both retrieval harnesses ship in this repo and run on the public datasets in minutes &middot;
 <a href="https://vshulcz.github.io/deja-vu/guide/benchmarks.html">check the numbers yourself</a></sub>
