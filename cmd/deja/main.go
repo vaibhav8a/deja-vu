@@ -46,7 +46,15 @@ func main() {
 	// working, so it takes less than a foreground run would (#3500).
 	takeWarmupBudget()
 	stopProfiling := startProfiling()
-	if err := run(os.Args[1:]); err != nil {
+	// Only `deja doctor` said a newer release exists. Look at most once a day,
+	// in the background, and only when a person is at the terminal (#4622).
+	notice := startReleaseNotice(os.Args[1:], briefWanted(os.Stdout) && briefWanted(os.Stderr),
+		index.DefaultDir()+".release", time.Now(), defaultDoctorVersionLookup())
+	err := run(os.Args[1:])
+	if exe, exeErr := os.Executable(); exeErr == nil {
+		notice.finish(os.Stderr, exe)
+	}
+	if err != nil {
 		stopProfiling()
 		// Already said, on stderr, in the words that fit what happened: a
 		// second sentence here would repeat it. The exit code is the point —
