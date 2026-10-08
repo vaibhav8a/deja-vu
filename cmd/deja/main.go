@@ -579,9 +579,8 @@ func cmdIndex(dir string, rest []string) error {
 	if quiet {
 		// The live display paints the same progress the sink above is
 		// discarding, and it paints it to stdout.
-		draw = build
+		draw = func() error { return timeBuild(build) }
 	}
-	started := time.Now()
 	if err := withWarmupStatus(dir, draw); err != nil {
 		// The command whose whole job is building the index used to pass the
 		// syscall through — `mkdir /…/index.db.tmp: permission denied` names
@@ -590,7 +589,6 @@ func cmdIndex(dir string, rest []string) error {
 		return ensureError(dir, err)
 	}
 	clearWarmupSentinel()
-	index.LastBuild.Took = time.Since(started)
 	// Inside the branch, not in its initializer: Go runs an `if` initializer
 	// before it tests the condition, so the freshness walk — every registered
 	// store, every candidate statted, the longest part of this command on a slow
