@@ -581,6 +581,7 @@ func cmdIndex(dir string, rest []string) error {
 		// discarding, and it paints it to stdout.
 		draw = build
 	}
+	started := time.Now()
 	if err := withWarmupStatus(dir, draw); err != nil {
 		// The command whose whole job is building the index used to pass the
 		// syscall through — `mkdir /…/index.db.tmp: permission denied` names
@@ -589,6 +590,7 @@ func cmdIndex(dir string, rest []string) error {
 		return ensureError(dir, err)
 	}
 	clearWarmupSentinel()
+	index.LastBuild.Took = time.Since(started)
 	// Inside the branch, not in its initializer: Go runs an `if` initializer
 	// before it tests the condition, so the freshness walk — every registered
 	// store, every candidate statted, the longest part of this command on a slow
@@ -648,8 +650,8 @@ func cmdIndex(dir string, rest []string) error {
 	// came back from both of that harness's stores is one conversation and
 	// gets no warning, but it is still two transcripts against one row (#2066).
 	if b := index.LastBuild; index.ReportMerged() > 0 && b.Messages > 0 {
-		fmt.Fprintf(said, "deja: indexed %d session%s, %d message%s — the per-harness lines above count transcripts, not rows\n",
-			b.Sessions, pluralS(b.Sessions), b.Messages, pluralS(b.Messages))
+		fmt.Fprintf(said, "deja: indexed %d session%s, %d message%s%s — the per-harness lines above count transcripts, not rows\n",
+			b.Sessions, pluralS(b.Sessions), b.Messages, pluralS(b.Messages), tookSuffix(b.Took))
 	}
 	// A machine with no agent history built an empty index and said nothing:
 	// the step whose whole job is filling memory returned to the prompt after
@@ -679,7 +681,7 @@ func cmdIndex(dir string, rest []string) error {
 	// record of what was built. Piped output has said it all along; this is
 	// the same two numbers for the reader who watched it happen (#867).
 	if b := index.LastBuild; !b.Initial && b.Messages > 0 && logoWanted(os.Stdout) && os.Getenv("DEJA_WARMUP_SENTINEL") == "" {
-		fmt.Fprintf(said, "deja: indexed %d session%s, %d message%s\n", b.Sessions, pluralS(b.Sessions), b.Messages, pluralS(b.Messages))
+		fmt.Fprintf(said, "deja: indexed %d session%s, %d message%s%s\n", b.Sessions, pluralS(b.Sessions), b.Messages, pluralS(b.Messages), tookSuffix(b.Took))
 	}
 	return nil
 }

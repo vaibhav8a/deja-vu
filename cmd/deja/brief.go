@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/vshulcz/deja-vu/internal/index"
@@ -517,6 +518,7 @@ func briefWorkKey(s string) string {
 // repeat the suggestion the greeting already ends with.
 func buildForFirstRun(dir string) (bool, error) {
 	prepareFirstIndexGreeting(dir)
+	started := time.Now()
 	if err := withBuildProgress(func() error { return index.Ensure(dir, "", false, os.Stderr) }); err != nil {
 		// Through the same translator `deja index` uses: this screen is the
 		// first thing a new install runs, and it reported a refused build as
@@ -524,6 +526,7 @@ func buildForFirstRun(dir string) (bool, error) {
 		// and a syscall, which is the shape #798 replaced everywhere else.
 		return false, ensureError(dir, err)
 	}
+	index.LastBuild.Took = time.Since(started)
 	before := index.LastBuild
 	maybeFirstIndexGreeting(dir)
 	return before.Initial && before.Messages > 0 && logoWanted(os.Stdout), nil
