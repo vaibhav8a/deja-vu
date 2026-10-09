@@ -9,7 +9,7 @@ OpenClaw was installed.
 
 It runs [deja](https://github.com/vshulcz/deja-vu), a local Go binary that
 indexes the transcripts those agents already wrote to disk. No LLM, no
-embeddings, no network path unless you ask for one.
+embeddings, no network path besides a daily release check, which DEJA_OFFLINE=1 turns off.
 
 ## Install
 
