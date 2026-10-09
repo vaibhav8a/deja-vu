@@ -59,4 +59,6 @@ One MCP tool, `deja`, with a `mode` argument (clients wired earlier can still ca
 No API keys and no configuration. Indexing, search and every tool above are
 local and make no network calls; the exceptions are commands somebody runs on
 purpose — `deja update`, `deja doctor`'s version check, `deja sync ssh` and
-`deja embed` against a model endpoint you name. SECURITY-MODEL.md lists them.
+`deja embed` against a model endpoint you name — and a once-a-day release check
+from a command typed at a terminal (`DEJA_OFFLINE=1` turns it off).
+SECURITY-MODEL.md lists them.

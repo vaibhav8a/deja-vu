@@ -90,8 +90,8 @@ output and does not listen on a network socket.
 
 ### Explicit exports and network paths
 
-deja has no background network traffic. Network access happens only after one
-of these commands is run:
+Network access happens only after one of these commands is run, or in the
+once-a-day release check described last:
 
 - `deja update` connects to GitHub over HTTPS to read release metadata and
   download the selected archive and `checksums.txt`. It verifies the archive's
@@ -105,6 +105,14 @@ of these commands is run:
 - `deja doctor` makes one HTTPS GET to the GitHub releases API to compare the
   installed version with the latest; `--offline` (or `DEJA_OFFLINE=1`) skips
   it. No session data is sent.
+- An interactive command (stdout and stderr both a terminal) checks for a
+  newer release at most once a day. It starts a detached `deja version`
+  process that makes the same HTTPS GET as `deja doctor` and writes the answer
+  to `<index dir>.release`; the next interactive command prints one line on
+  stderr if a newer release is out. No session data is sent. Hooks, the MCP
+  server, pipes, dev builds and `deja update`, `doctor` and `version` never
+  start it. `DEJA_OFFLINE=1` or `DEJA_NO_UPDATE_NOTICE=1` turns it off, and
+  then no request is made.
 - `deja embed` and hybrid search talk to the embedding endpoint you configured
   (an Ollama or LM Studio address, normally on localhost). Without that
   configuration the semantic path is off and nothing is sent anywhere. It is

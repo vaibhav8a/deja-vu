@@ -2,9 +2,10 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,40 @@ func withVersion(t *testing.T, v string) {
 	saved := version
 	version = v
 	t.Cleanup(func() { version = saved })
+}
+
+// releaseNoticeEnv clears the switches a developer's shell may carry, and
+// points the index at a temp dir so nothing lands next to the real one.
+func releaseNoticeEnv(t *testing.T) string {
+	t.Helper()
+	t.Setenv(releaseNoticeOff, "")
+	t.Setenv("DEJA_OFFLINE", "")
+	t.Setenv(releaseLookEnv, "")
+	dir := filepath.Join(t.TempDir(), "index")
+	t.Setenv("DEJA_INDEX_DIR", dir)
+	return dir
+}
+
+// countingTransport answers every request with a release and counts them, so
+// a test sees each request deja tried to make.
+type countingTransport struct{ n atomic.Int32 }
+
+func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"tag_name":"v1.2.0"}`)),
+	}, nil
+}
+
+func withCountingTransport(t *testing.T) *countingTransport {
+	t.Helper()
+	ct := &countingTransport{}
+	saved := http.DefaultTransport
+	http.DefaultTransport = ct
+	t.Cleanup(func() { http.DefaultTransport = saved })
+	return ct
 }
 
 // The line names both versions, the upgrade command for whatever installed the
@@ -38,64 +73,142 @@ func TestReleaseNoticeLine(t *testing.T) {
 	}
 }
 
-func TestReleaseNoticeLooksOnceADayOnlyWhenInteractive(t *testing.T) {
+func TestReleaseNoticeNeverStartsALookWhereItMayNotSpeak(t *testing.T) {
 	withVersion(t, "1.0.0")
-	t.Setenv(releaseNoticeOff, "")
-	now := time.Unix(1_800_000_000, 0)
-	var looks atomic.Int32
-	lookup := func() (string, bool) { looks.Add(1); return "1.2.0", true }
-	stampIn := func(t *testing.T) string { return filepath.Join(t.TempDir(), "index.release") }
-
-	if startReleaseNotice([]string{"search", "x"}, false, stampIn(t), now, lookup) != nil {
-		t.Error("a hook, a pipe or the MCP server got a notice")
+	dir := releaseNoticeEnv(t)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, cmd := range []string{"update", "doctor", "version", "--version"} {
-		if startReleaseNotice([]string{cmd}, true, stampIn(t), now, lookup) != nil {
-			t.Errorf("`deja %s` already speaks about versions, and got a notice too", cmd)
+	now := time.Unix(1_800_000_000, 0)
+	var spawns atomic.Int32
+	spawn := func(string) error { spawns.Add(1); return nil }
+	refuse := func(name string, n *releaseNotice) {
+		t.Helper()
+		if n != nil || spawns.Load() != 0 {
+			t.Errorf("%s: got a notice (spawns %d)", name, spawns.Load())
+		}
+		if _, err := os.Stat(dir + ".release"); err == nil {
+			t.Errorf("%s: wrote a stamp", name)
 		}
 	}
-	t.Setenv(releaseNoticeOff, "1")
-	if startReleaseNotice(nil, true, stampIn(t), now, lookup) != nil {
-		t.Errorf("%s=1 did not hide the notice", releaseNoticeOff)
+
+	refuse("not interactive", startReleaseNotice([]string{"search", "x"}, false, dir, now, spawn))
+	for _, cmd := range []string{"update", "doctor", "version", "--version", "-version"} {
+		refuse("deja "+cmd, startReleaseNotice([]string{cmd}, true, dir, now, spawn))
 	}
+	refuse("relative index dir", startReleaseNotice(nil, true, filepath.Join(".cache", "deja", "index"), now, spawn))
+
+	t.Setenv(releaseNoticeOff, "1")
+	refuse(releaseNoticeOff+"=1", startReleaseNotice(nil, true, dir, now, spawn))
 	t.Setenv(releaseNoticeOff, "")
 
-	stamp := stampIn(t)
-	var out bytes.Buffer
-	startReleaseNotice([]string{"search", "x"}, true, stamp, now, lookup).finish(&out, "/usr/local/bin/deja")
-	if !strings.Contains(out.String(), "deja v1.2.0 is out") {
-		t.Fatalf("first interactive run of the day said %q", out.String())
-	}
-	if startReleaseNotice([]string{"search", "x"}, true, stamp, now.Add(23*time.Hour), lookup) != nil {
-		t.Error("a second look inside the day")
-	}
-	if startReleaseNotice([]string{"search", "x"}, true, stamp, now.Add(25*time.Hour), lookup) == nil {
-		t.Error("no look the next day")
-	}
-	if b, _ := os.ReadFile(stamp); strings.TrimSpace(string(b)) != strconv.FormatInt(now.Add(25*time.Hour).Unix(), 10) {
-		t.Errorf("stamp %q was not moved to the day's look", b)
+	t.Setenv("DEJA_OFFLINE", "1")
+	refuse("DEJA_OFFLINE=1", startReleaseNotice(nil, true, dir, now, spawn))
+	t.Setenv("DEJA_OFFLINE", "")
+
+	withVersion(t, "dev")
+	refuse("dev build", startReleaseNotice(nil, true, dir, now, spawn))
+	withVersion(t, "1.0.0")
+
+	// `-v` is a search for "-v", so it qualifies like any other search.
+	if startReleaseNotice([]string{"-v"}, true, dir, now, spawn) == nil || spawns.Load() != 1 {
+		t.Errorf("`deja -v` got no look (spawns %d)", spawns.Load())
 	}
 }
 
-func TestReleaseNoticeSaysNothingForADevBuildOrASlowNetwork(t *testing.T) {
-	t.Setenv(releaseNoticeOff, "")
+// One look a day, in another process; what it found is printed by the next
+// run with no wait, once a day, and never for a release that is not newer.
+func TestReleaseNoticeLooksOnceADayAndPrintsWhatTheLookFound(t *testing.T) {
+	withVersion(t, "1.0.0")
+	dir := releaseNoticeEnv(t)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stamp := dir + ".release"
 	now := time.Unix(1_800_000_000, 0)
-	withVersion(t, "dev")
-	if startReleaseNotice(nil, true, filepath.Join(t.TempDir(), "s"), now, func() (string, bool) { return "9.9.9", true }) != nil {
-		t.Error("a dev build was told it is behind")
+	var spawned []string
+	spawn := func(s string) error { spawned = append(spawned, s); return nil }
+	exe := "/usr/local/bin/deja"
+	runAt := func(at time.Time) string {
+		var out bytes.Buffer
+		startReleaseNotice([]string{"search", "x"}, true, dir, at, spawn).finish(&out, exe)
+		return out.String()
 	}
 
-	withVersion(t, "1.0.0")
-	release := make(chan struct{})
-	defer close(release)
-	slow := func() (string, bool) { <-release; return "1.2.0", true }
-	var out bytes.Buffer
-	started := time.Now()
-	startReleaseNotice(nil, true, filepath.Join(t.TempDir(), "s"), now, slow).finish(&out, "/usr/local/bin/deja")
-	if out.Len() != 0 {
-		t.Errorf("a look that had not answered printed %q", out.String())
+	if out := runAt(now); out != "" || len(spawned) != 1 || spawned[0] != stamp {
+		t.Fatalf("first run: printed %q, spawned %v", out, spawned)
 	}
-	if waited := time.Since(started); waited > 2*releaseNoticeGrace {
-		t.Errorf("the command waited %v for the network", waited)
+	// The child answers after the command has ended.
+	runReleaseLook(stamp, func() (string, bool) { return "1.2.0", true })
+
+	if out := runAt(now.Add(time.Hour)); !strings.Contains(out, "deja v1.2.0 is out") {
+		t.Fatalf("the run after the look said %q", out)
+	}
+	if out := runAt(now.Add(2 * time.Hour)); out != "" {
+		t.Errorf("the line came back the same day: %q", out)
+	}
+	if len(spawned) != 1 {
+		t.Errorf("a second look inside the day: %v", spawned)
+	}
+	if out := runAt(now.Add(25 * time.Hour)); !strings.Contains(out, "deja v1.2.0 is out") || len(spawned) != 2 {
+		t.Errorf("next day: printed %q, spawned %v", out, spawned)
+	}
+
+	withVersion(t, "1.2.0")
+	if out := runAt(now.Add(50 * time.Hour)); out != "" {
+		t.Errorf("an upgraded binary was told %q", out)
+	}
+}
+
+// DEJA_OFFLINE=1 is the opt-out SECURITY-MODEL.md names: with it set the look
+// makes no request at all, even in a child started before it was set.
+func TestReleaseLookMakesNoRequestOffline(t *testing.T) {
+	withVersion(t, "1.0.0")
+	dir := releaseNoticeEnv(t)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stamp := dir + ".release"
+	ct := withCountingTransport(t)
+
+	t.Setenv("DEJA_OFFLINE", "1")
+	runReleaseLook(stamp, defaultDoctorVersionLookup())
+	if got := ct.n.Load(); got != 0 {
+		t.Fatalf("DEJA_OFFLINE=1 made %d requests", got)
+	}
+	if _, err := os.Stat(stamp); err == nil {
+		t.Error("DEJA_OFFLINE=1 wrote a stamp")
+	}
+	if startReleaseNotice([]string{"search", "x"}, true, dir, time.Now(), spawnReleaseLook) != nil {
+		t.Error("DEJA_OFFLINE=1 started a look")
+	}
+
+	// The same look without it reaches the transport, so the zero above is
+	// the switch working and not a stub that sees nothing.
+	t.Setenv("DEJA_OFFLINE", "")
+	runReleaseLook(stamp, defaultDoctorVersionLookup())
+	if got := ct.n.Load(); got != 1 {
+		t.Fatalf("online look made %d requests, want 1", got)
+	}
+	if got := readReleaseStamp(stamp).Latest; got != "1.2.0" {
+		t.Errorf("stamp kept %q, want 1.2.0", got)
+	}
+}
+
+// The child is only `deja version` with the stamp of this very index: any
+// other command, or a path elsewhere, is not taken as a look.
+func TestReleaseLookRequestedOnlyForThisIndex(t *testing.T) {
+	dir := releaseNoticeEnv(t)
+	stamp := dir + ".release"
+	t.Setenv(releaseLookEnv, stamp)
+	if got, ok := releaseLookRequested([]string{"version"}, dir); !ok || got != stamp {
+		t.Errorf("the child was not recognised: %q %v", got, ok)
+	}
+	if _, ok := releaseLookRequested([]string{"search", "version"}, dir); ok {
+		t.Error("a search was taken for the look")
+	}
+	t.Setenv(releaseLookEnv, filepath.Join(t.TempDir(), "elsewhere.release"))
+	if _, ok := releaseLookRequested([]string{"version"}, dir); ok {
+		t.Error("a stamp outside the index was accepted")
 	}
 }

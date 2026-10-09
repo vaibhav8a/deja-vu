@@ -39,6 +39,11 @@ var version = "dev"
 var errAlreadySaid = errors.New("already said")
 
 func main() {
+	// The detached look an interactive run started once a day (#4622).
+	if stamp, ok := releaseLookRequested(os.Args[1:], index.DefaultDir()); ok {
+		runReleaseLook(stamp, defaultDoctorVersionLookup())
+		return
+	}
 	// A command that lands mid-rebuild waits for the whole of it, and silence
 	// there reads as a hang rather than as a queue (#994).
 	index.LockWaitNotice = func() {
@@ -51,7 +56,7 @@ func main() {
 	// Only `deja doctor` said a newer release exists. Look at most once a day,
 	// in the background, and only when a person is at the terminal (#4622).
 	notice := startReleaseNotice(os.Args[1:], briefWanted(os.Stdout) && briefWanted(os.Stderr),
-		index.DefaultDir()+".release", time.Now(), defaultDoctorVersionLookup())
+		index.DefaultDir(), time.Now(), spawnReleaseLook)
 	err := run(os.Args[1:])
 	if exe, exeErr := os.Executable(); exeErr == nil {
 		notice.finish(os.Stderr, exe)

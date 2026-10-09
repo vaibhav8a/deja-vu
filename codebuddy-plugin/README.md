@@ -52,8 +52,9 @@ deja reads CodeBuddy's own sessions from `~/.codebuddy/projects`
 
 Indexing and search are local: deja reads the transcripts in place and keeps
 its index under `~/.cache/deja`. The network is used only by `deja update`,
-`deja sync ssh`, the version check in `deja doctor`, and `deja embed` against an
-endpoint you configure. Details are in the
+`deja sync ssh`, the version check in `deja doctor`, `deja embed` against an
+endpoint you configure, and a once-a-day release check from a command typed at a
+terminal (`DEJA_OFFLINE=1` turns it off). Details are in the
 [repository README](https://github.com/vshulcz/deja-vu#readme); security policy in
 [SECURITY.md](https://github.com/vshulcz/deja-vu/blob/main/SECURITY.md).
 

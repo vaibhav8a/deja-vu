@@ -149,7 +149,9 @@ Install also writes user-level guidance for the harnesses it detects: Claude Cod
 ## Privacy
 
 Indexing and search are local. The network is used only by `deja update`, `deja sync ssh`,
-the version check in `deja doctor`, and `deja embed` against an endpoint you configure.
+the version check in `deja doctor`, `deja embed` against an endpoint you configure, and a
+once-a-day look at the latest release from an interactive command. That look sends no
+session data; `DEJA_OFFLINE=1` or `DEJA_NO_UPDATE_NOTICE=1` turns it off.
 
 Credentials are stripped as the index is built: cloud and provider keys, tokens and JWTs,
 PEM blocks, passwords in URLs or stated in prose. Each becomes `[redacted:<kind>]` and the
