@@ -100,9 +100,9 @@ func runHandoff(dir string, args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(os.Stderr, "deja: handing off %s · %s · %s · %s\n", s.Harness, s.Project, digest.Short(s.ID), age)
 	if !s.Updated.IsZero() && time.Since(s.Updated) > 7*24*time.Hour {
-		// humanAge already ends in "old"; appending the word again printed
-		// "this session is 11d old old" (#743).
-		fmt.Fprintf(os.Stderr, "deja: note — this session is %s; if you meant newer work, pass an id-prefix (see `deja last`)\n", age)
+		// The line above already says how old; saying it again here read as
+		// two warnings.
+		fmt.Fprintln(os.Stderr, "deja: older than a week — `deja last` lists newer sessions to hand off")
 	}
 	// The quoted half carries the same frame recall does: this text becomes
 	// the next agent's first prompt, and nothing else said which half of it
@@ -112,7 +112,7 @@ func runHandoff(dir string, args []string, stdout io.Writer) error {
 	if !doExec {
 		printSanitized(stdout, digest)
 		if pasteOnly {
-			fmt.Fprintf(os.Stderr, "\npaste this into a new chat, or hand off directly: deja handoff --to <%s> [--exec]\n", strings.Join(handoffTargets(), "|"))
+			fmt.Fprint(os.Stderr, pasteOnlyFooter(prefix))
 		} else {
 			argv, _ := handoffCommand(target, "")
 			head := make([]string, 0, len(argv))
@@ -203,7 +203,7 @@ func handoffSource(dir, prefix string) (model.Session, error) {
 			return model.Session{}, err
 		}
 		if !ok {
-			return model.Session{}, fmt.Errorf("no session matches %q", prefix)
+			return model.Session{}, noSessionMatches(dir, prefix)
 		}
 		return s, nil
 	}
@@ -399,6 +399,9 @@ func handoffCommand(target, prompt string) ([]string, bool) {
 	case "antigravity":
 		// Antigravity's CLI is `agy`; -i seeds a prompt into an interactive session.
 		return []string{"agy", "-i", prompt}, true
+	case "devin":
+		// Devin CLI's one-shot mode: -p prints an answer and exits.
+		return []string{"devin", "-p", prompt}, true
 	default:
 		return nil, false
 	}
@@ -417,7 +420,47 @@ var handoffAlias = map[string]string{
 // command line to hand a prompt to.
 var handoffPasteOnly = map[string]bool{"roo": true, "cherrystudio": true, "zed": true, "jetbrains": true}
 
+// pasteOnlyFooter ends a handoff printed for pasting. It named all of
+// handoffTargets inline, a four-line wall at 80 columns; the agents a reader
+// can actually open here are the ones whose command is on PATH.
+func pasteOnlyFooter(prefix string) string {
+	var found []string
+	for _, t := range handoffTargets() {
+		if handoffPasteOnly[t] {
+			continue
+		}
+		argv, ok := handoffCommand(t, "")
+		if !ok || len(argv) == 0 {
+			continue
+		}
+		if _, err := exec.LookPath(argv[0]); err == nil {
+			found = append(found, t)
+		}
+	}
+	if len(found) == 0 {
+		return "\npaste this into a new chat — `deja handoff --help` names the agents it can open directly\n"
+	}
+	const shown = 3
+	var b strings.Builder
+	b.WriteString("\npaste this into a new chat, or open it in an agent found here:\n")
+	for i, t := range found {
+		if i == shown {
+			width := printableWidth(os.Stderr)
+			if width <= 0 {
+				width = 76
+			}
+			more := fmt.Sprintf("(%d more: %s)", len(found)-shown, strings.Join(found[shown:], ", "))
+			for _, line := range strings.Split(wrapProse(more, width-2), "\n") {
+				b.WriteString("  " + line + "\n")
+			}
+			break
+		}
+		fmt.Fprintf(&b, "  deja handoff --to %s%s --exec\n", t, prefixArg(prefix))
+	}
+	return b.String()
+}
+
 func handoffTargets() []string {
 	return []string{"claude", "codex", "opencode", "cursor", "copilot", "copilot-chat", "gemini", "qwen", "antigravity", "aider", "pi", "senpi", "omp", "amp", "prime", "grok", "cline", "goose", "kimi", "crush",
-		"kilocode", "continue", "commandcode", "codebuddy", "trae", "muse", "kiro", "gjc", "kimchi", "codewhale", "junie", "hermes", "openclaw", "deepseek", "reasonix", "zcode"}
+		"kilocode", "continue", "commandcode", "codebuddy", "trae", "muse", "kiro", "gjc", "kimchi", "codewhale", "junie", "hermes", "openclaw", "deepseek", "reasonix", "zcode", "devin"}
 }

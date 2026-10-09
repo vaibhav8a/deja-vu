@@ -187,10 +187,7 @@ func runHookToolAfterMode(dir string, stdin io.Reader, stdout io.Writer, plain b
 	// The event it was sent. Claude Code fires PostToolUseFailure for a command
 	// that exited non-zero and drops a reply naming any other event (#4488);
 	// qwen takes either. Everything else gets the name it always had.
-	resp.HookSpecificOutput.HookEventName = "PostToolUse"
-	if input.HookEventName == "PostToolUseFailure" {
-		resp.HookSpecificOutput.HookEventName = input.HookEventName
-	}
+	resp.HookSpecificOutput.HookEventName = replyEventName(input.HookEventName, "PostToolUse", "PostToolUse", "PostToolUseFailure")
 	resp.HookSpecificOutput.AdditionalContext = payload
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -218,7 +215,9 @@ func isCommandTool(name string) bool {
 		"execute_bash",
 		// VS Code Copilot Chat's terminal tool; its result ends with
 		// "Command exited with code N" when the command failed.
-		"run_in_terminal":
+		"run_in_terminal",
+		// Devin's shell tool.
+		"exec":
 		return true
 	}
 	return false
@@ -537,13 +536,13 @@ func fixLine(p index.FixPair, sessions int) string {
 		// Not something to run, so not offered as one: the file, in the words
 		// `deja fix` uses for the same pair.
 		if p.Candidate {
-			return "deja: this error came up" + how + " " + where + " before" + when +
+			return "this error came up" + how + " " + where + " before" + when +
 				" — one session changed this file after it, and nothing confirms it worked: " + edit
 		}
-		return "deja: this error came up" + how + " " + where + " before" + when + " — changed next: " + edit
+		return "this error came up" + how + " " + where + " before" + when + " — changed next: " + edit
 	}
 	if p.Candidate {
-		return "deja: this error came up" + how + " " + where + " before" + when +
+		return "this error came up" + how + " " + where + " before" + when +
 			" — one session ran this after it, and nothing confirms it worked: " + cmd
 	}
 	// A repaired remedy is not "what followed it", it is the command the reader
@@ -552,9 +551,9 @@ func fixLine(p index.FixPair, sessions int) string {
 	// twice. Of the 360 pairs served on a real store, 107 name nothing their
 	// error names for exactly this reason.
 	if p.Failed != "" {
-		return "deja: this error came up" + how + " " + where + " before" + when + " — the same command worked as: " + cmd
+		return "this error came up" + how + " " + where + " before" + when + " — the same command worked as: " + cmd
 	}
-	return "deja: this error came up" + how + " " + where + " before" + when + " — what followed it: " + cmd
+	return "this error came up" + how + " " + where + " before" + when + " — what followed it: " + cmd
 }
 
 // withoutFailedExit drops the recorded exit status from a command, and reports

@@ -21,7 +21,7 @@ import (
 // terminal attached.
 func runResume(dir string, args []string, stdout io.Writer) error {
 	if len(args) < 1 {
-		return idPrefixNeeded(dir, "resume needs an id-prefix", "resume needs id-prefix (see `deja last`)")
+		return idPrefixNeeded(dir, "resume needs an id prefix", "resume needs an id prefix (see `deja last`)")
 	}
 	doExec, writeBack := false, false
 	prefix := ""
@@ -46,7 +46,7 @@ func runResume(dir string, args []string, stdout io.Writer) error {
 		prefix = a
 	}
 	if prefix == "" {
-		return idPrefixNeeded(dir, "resume needs an id-prefix", "resume needs id-prefix (see `deja last`)")
+		return idPrefixNeeded(dir, "resume needs an id prefix", "resume needs an id prefix (see `deja last`)")
 	}
 	s, ok, err := findByPrefix(dir, prefix)
 	noteAmbiguousPrefix(dir, prefix, "resuming")
@@ -54,7 +54,7 @@ func runResume(dir string, args []string, stdout io.Writer) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("no session matches %q", prefix)
+		return noSessionMatches(dir, prefix)
 	}
 	// Naming an exact id is still browsing under the search activation, so a
 	// session a trust rule withholds must not be reopenable here any more than
@@ -96,6 +96,11 @@ func runResume(dir string, args []string, stdout io.Writer) error {
 			fmt.Fprintf(os.Stderr, "deja: run it from %q — the directory's name has characters the printed line cannot carry, so it leaves out the cd\n", dir)
 		}
 		fmt.Fprintln(stdout, line)
+		// At a terminal a bare command reads like output rather than an
+		// answer. stderr, so `$(deja resume …)` still gets the line alone.
+		if f, isFile := stdout.(*os.File); isFile && briefWanted(f) {
+			fmt.Fprintf(os.Stderr, "deja: run that line, or `deja resume %s --exec` opens it now\n", prefix)
+		}
 		return nil
 	}
 	parts, err := resumeArgv(cmdline)
@@ -276,7 +281,7 @@ func resumeCommand(s model.Session) (string, string, error) {
 	// id deja gives it is one they have never seen (#4483).
 	// Muse's child logs are the same: `muse resume <child>` answers "has no
 	// saved log" (#4710).
-	if s.Kind == "subagent" && (s.Harness == "kimi" || s.Harness == "qwen" || s.Harness == "muse" || s.Harness == "codebuddy") && s.Parent != "" {
+	if s.Kind == "subagent" && (s.Harness == "kimi" || s.Harness == "qwen" || s.Harness == "muse" || s.Harness == "codebuddy" || s.Harness == "devin") && s.Parent != "" {
 		return "", "", fmt.Errorf("session %s is a sub-agent run, which %s does not reopen on its own — `deja resume %s` reopens the session that spawned it", digest.Short(s.ID), s.Harness, s.Parent)
 	}
 	// Nor a Kimi /btw side question, which runs in a fork of the session it
@@ -515,6 +520,11 @@ func resumeCommand(s model.Session) (string, string, error) {
 		// reads like deja is missing something. Both are settled answers, and
 		// the registry has carried the reason all along.
 		return "", "", fmt.Errorf("zed threads reopen from the editor's own history — no zed flag takes a thread id")
+	case "devin":
+		// `devin --resume <id>` finds the session in its one global store, so
+		// the recorded directory is a preference, not a requirement: reopen
+		// where the session ran when that directory is still here.
+		return existingDir(resumeRecordedDir(s)), "devin --resume " + s.ID, nil
 	case "deepseek":
 		return "", "", fmt.Errorf("neither of DeepSeek Harness's two apps takes a session id, so there is nothing to reopen by")
 	case "codewhale":
@@ -729,6 +739,9 @@ func resumeRecordedDir(s model.Session) string {
 			return sources.KiroDBSessionDir(s.Path, s.ID)
 		}
 		return sources.KiroSessionDir(s.Path)
+	case "devin":
+		// The sessions row's own working_directory.
+		return sources.DevinSessionDir(s.Path, s.ID)
 	case "continue":
 		return sources.ContinueSessionDir(s.Path)
 	case "codewhale":

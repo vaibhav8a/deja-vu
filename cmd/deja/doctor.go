@@ -110,6 +110,24 @@ func runDoctor(w io.Writer, args []string, lookup doctorVersionLookup, dir strin
 		}
 		return deepDriftErr(deepReport)
 	}
+	// A terminal gets the screen laid out for reading: a verdict first, agents
+	// that are not on this machine folded into one line, columns aligned and
+	// wrapped to the width. A pipe keeps every row as it always printed.
+	if f, ok := w.(*os.File); ok && briefWanted(f) {
+		var buf bytes.Buffer
+		printDoctorText(&buf, report, deepReport, dir, all, offline)
+		_, err := io.WriteString(w, doctorScreen(buf.String(), report, all, statColorOK(w), briefWidth()))
+		if err != nil {
+			return err
+		}
+		return deepDriftErr(deepReport)
+	}
+	printDoctorText(w, report, deepReport, dir, all, offline)
+	return deepDriftErr(deepReport)
+}
+
+// printDoctorText is the report as every row prints it.
+func printDoctorText(w io.Writer, report doctorReport, deepReport *index.DeepReport, dir string, all, offline bool) {
 	doctorHarnessStores(w, dir, all)
 	printDoctorStoreWarnings(w, report.Stores)
 	// The third cause of a files-to-sessions gap, after a parse failure (#861)
@@ -158,7 +176,6 @@ func runDoctor(w io.Writer, args []string, lookup doctorVersionLookup, dir strin
 		fmt.Fprintln(w)
 		doctorDeep(w, *deepReport)
 	}
-	return deepDriftErr(deepReport)
 }
 
 // doctorDeep prints the source-vs-index proof. Everything above it is deja
@@ -232,11 +249,11 @@ func doctorHooks(w io.Writer) {
 	defer doctorCodexHook(w)
 	st := claudeHookWiringState()
 	if st.absent {
-		fmt.Fprintf(w, "  %-12s missing      %s\n", "claude-code", reportPath(st.path))
+		fmt.Fprintf(w, "  %-12s %-11s %s\n", "claude-code", "missing", reportPath(st.path))
 		return
 	}
 	if st.state == "unreadable" {
-		fmt.Fprintf(w, "  %-12s unreadable   %s\n", "claude-code", reportPath(st.path))
+		fmt.Fprintf(w, "  %-12s %-11s %s\n", "claude-code", "unreadable", reportPath(st.path))
 		return
 	}
 	fmt.Fprintf(w, "  %-12s %-11s %s\n", "claude-code", st.state, reportPath(st.path))
@@ -308,18 +325,18 @@ func doctorCodexHook(w io.Writer) {
 		// missing either.
 		if status == "plugin" {
 			fmt.Fprintf(w, "  %-12s %-11s %s  (the Codex plugin carries the hooks; codex asks once to trust them)\n",
-				"codex-hook", "plugin", hooksPath)
+				"codex-hook", "plugin", reportPath(hooksPath))
 			return
 		}
-		fmt.Fprintf(w, "  %-12s missing      %s\n", "codex-hook", reportPath(hooksPath))
+		fmt.Fprintf(w, "  %-12s %-11s %s\n", "codex-hook", "missing", reportPath(hooksPath))
 		return
 	}
 	if st.trustUnknown {
 		fmt.Fprintf(w, "  %-12s %-11s %s  (cannot read %s, so whether codex trusts the hook is unknown)\n",
-			"codex-hook", "wired", hooksPath, filepath.Join(sources.CodexHome(), "config.toml"))
+			"codex-hook", "wired", reportPath(hooksPath), reportPath(filepath.Join(sources.CodexHome(), "config.toml")))
 		return
 	}
-	line := fmt.Sprintf("  %-12s %-11s %s", "codex-hook", status, hooksPath)
+	line := fmt.Sprintf("  %-12s %-11s %s", "codex-hook", status, reportPath(hooksPath))
 	if len(missing) > 0 {
 		line += fmt.Sprintf("\n               %d of %d events wired — no %s; run `deja install`",
 			len(codexHookWiring)-len(missing), len(codexHookWiring), strings.Join(missing, ", "))
@@ -1164,6 +1181,16 @@ func doctorHarnessStores(w io.Writer, dir string, all bool) {
 	printFiles("deepseek", dshRoot, doctorExists(dshRoot), sources.DeepSeekSessionFiles())
 	zedDB := sources.ZedDB()
 	printRow("zed", zedDB, doctorFilePresent(zedDB), doctorSQLiteDetail(zedDB, sqlite))
+	// One store for every local session, as Zed has — but the file the row
+	// names may be either of the two Devin keeps side by side.
+	devinDB := sources.DevinSessionsDB()
+	devinLoc := devinDB
+	devinDetail := doctorSQLiteDetail(devinDB, sqlite)
+	if legacy := sources.DevinLegacySessionsDB(); !doctorFilePresent(devinDB) && doctorFilePresent(legacy) {
+		devinLoc = legacy
+		devinDetail = doctorSQLiteDetail(legacy, sqlite)
+	}
+	printRow("devin", devinLoc, doctorFilePresent(devinDB) || doctorFilePresent(sources.DevinLegacySessionsDB()), devinDetail)
 	// One store per project rather than one per machine, so the registry is
 	// what makes them findable at all. Name it even when it lists nothing:
 	// "the registry is empty" is the answer for someone whose crush sessions
@@ -2042,6 +2069,7 @@ func doctorMCPConfigs() []doctorMCPConfig {
 		{"continue", continueConfigPath(), doctorContinueWired, nil},
 		{"crush", crushConfigPath(), doctorJSONWired("mcp"), doctorJSONDejaKeys("mcp")},
 		{"zed", sources.ZedSettingsPath(), doctorZedWired, nil},
+		{"devin", devinMCPConfigPath(), doctorJSONWired("mcpServers"), doctorJSONDejaKeys("mcpServers")},
 		// The nine targets `deja install` has always had and this table never
 		// named. A row here is the only place a machine says whether the
 		// server is declared and which binary it runs, so for these the report
@@ -2637,7 +2665,13 @@ func doctorIndex(w io.Writer, idx doctorIndexReport, dir string) {
 		// "run `deja warmup`" points at a path that is not there. doctor is
 		// what someone runs when memory looks broken (#931).
 		if parent := filepath.Dir(dir); !dirExists(parent) {
-			fmt.Fprintf(w, "  status   not reachable — %s is not there; the disk it lives on may have been unmounted\n", parent)
+			// A new home has no ~/.cache yet, and a build creates it: that
+			// is an index not built, not a disk that went away.
+			if freshHomePath(parent) {
+				fmt.Fprintln(w, "  status   not built (run `deja warmup`)")
+				return
+			}
+			fmt.Fprintf(w, "  status   not reachable — %s is not there; the disk it lives on may have been unmounted\n", reportPath(parent))
 			return
 		}
 		// The index directory is there but cannot be read — a permissions
@@ -2882,12 +2916,22 @@ func reportPath(p string) string {
 	// Some rows carry several paths in one string — a store deja looks for in
 	// two places, or a root list from the environment. Contracting the whole
 	// string would only reach the first, which is how the cursor row came out
-	// half in ~ and half in /Users/… .
+	// half in ~ and half in /Users/… . Joined back with ", ", the separator
+	// the cursor row already used, so every multi-path row reads the same.
 	parts := strings.Split(p, string(os.PathListSeparator))
 	for i, part := range parts {
 		parts[i] = search.SafePath(underHome(part))
 	}
-	return strings.Join(parts, string(os.PathListSeparator))
+	return strings.Join(parts, ", ")
+}
+
+// freshHomePath says whether a missing path lies inside the home directory
+// below a directory deja can write, so a build would simply create it. A
+// mount point that went away leaves its path outside the home, or under a
+// directory nothing here can write.
+func freshHomePath(p string) bool {
+	a := nearestExistingDir(p)
+	return a != "" && underHome(a) != a && dirWritable(a)
 }
 
 // underHome contracts a home-prefixed path to ~, and leaves everything else
